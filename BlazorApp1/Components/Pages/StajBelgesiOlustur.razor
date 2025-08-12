@@ -1,0 +1,468 @@
+﻿@page "/student/staj-belge"
+@attribute [Authorize(Roles = "Öğrenci")]
+@rendermode InteractiveServer
+
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Http
+
+@inject IInternshipService Internship
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<div class="page-bg">
+    <div class="container-fluid py-3">
+
+        <!-- Header -->
+        <div class="card-soft p-3 mb-3 header-wrap">
+            <div class="d-flex align-items-center gap-3">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-file-earmark-arrow-up fs-5"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h3 class="mb-1">Staj Belgesi Yükleme</h3>
+
+                    @if (!loading && app is not null)
+                    {
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="badge-title">Başvuru: <strong class="ms-1">#@app.Id</strong></span>
+                            <span class="badge-title">Sürüm: <strong class="ms-1">v@app.CurrentVersion</strong></span>
+                            <span class="badge-title">Durum: <strong class="ms-1">@app.Status</strong></span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (loading)
+        {
+            <div class="text-muted">Yükleniyor...</div>
+        }
+        else if (app == null)
+        {
+            <div class="alert alert-danger">Aktif başvuru oluşturulamadı.</div>
+        }
+        else
+        {
+            <!-- Öğretmen reddi uyarısı -->
+            @if (app?.Reviews?.OrderByDescending(r => r.CreatedAt).FirstOrDefault() is { } lastReview
+                    && lastReview.ReviewerRole == ReviewerRole.Teacher
+                    && lastReview.Decision == ReviewDecision.Reject)
+            {
+                <div class="alert alert-danger">
+                    <strong>Öğretmen reddetti:</strong> @lastReview.Reason
+                    <div class="small text-muted">Lütfen belgeni düzeltip yeniden yükle.</div>
+                </div>
+            }
+
+            <!-- Final onay uyarısı -->
+            @if (app.Status == InternshipStatus.AdminApproved)
+            {
+                <div class="alert alert-success mb-3">
+                    Belgen <strong>onaylandı</strong>. Yeni yükleme kapalıdır. Aşağıdaki “Onaylanan Başvurularım” bölümünden belgeni indirebilirsin.
+                </div>
+            }
+
+            <!-- PDF Yükle -->
+            <div class="card-soft p-3 mb-3">
+                <div class="fw-semibold mb-2 d-flex align-items-center gap-2">
+                    <i class="bi bi-cloud-upload"></i><span>PDF Yükle</span>
+                </div>
+
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <InputFile OnChange="OnFileSelected" accept=".pdf" />
+                    <button class="btn btn-gradient-primary hover-lift"
+                            @onclick="Upload"
+                            disabled="@(!CanUpload || app?.Status == InternshipStatus.AdminApproved)">
+                        Yükle
+                    </button>
+                </div>
+
+                <div class="small text-muted mt-2">
+                    Sadece PDF. Maks 10 MB.
+                </div>
+
+                <div class="small text-muted mt-2">
+                    DEBUG → uploading: @uploading,
+                    selectedFile null mu: @(selectedFile == null ? "evet" : "hayır"),
+                    CanUpload: @CanUpload
+                </div>
+
+                @if (!string.IsNullOrEmpty(uploadError))
+                {
+                    <div class="text-danger mt-2">@uploadError</div>
+                }
+                @if (!string.IsNullOrEmpty(successMessage))
+                {
+                    <div class="text-success mt-2">@successMessage</div>
+                }
+            </div>
+
+            <div class="row g-3">
+                <!-- Yüklenen Sürümler -->
+                <div class="col-md-6">
+                    <div class="card-soft h-100 p-0">
+                        <div class="p-3 fw-semibold d-flex align-items-center gap-2">
+                            <i class="bi bi-collection"></i><span>Yüklenen Sürümler</span>
+                        </div>
+                        <div class="px-3 pb-3">
+                            @if (app.Documents == null || app.Documents.Count == 0)
+                            {
+                                <div class="text-muted">Henüz dosya yok.</div>
+                            }
+                            else
+                            {
+                                <div class="scroll-container">
+                                    <table class="table table-sm align-middle table-sticky table-nowrap mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Versiyon</th>
+                                                <th>Dosya</th>
+                                                <th>Tarih</th>
+                                                <th>İşlem</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var d in app.Documents.OrderByDescending(x => x.Version))
+                                            {
+                                                var isLatest = d.Version == app.CurrentVersion;
+                                                <tr>
+                                                    <td><span class="pill pill-term">v@d.Version</span></td>
+                                                    <td>@d.FileName</td>
+                                                    <td>@d.UploadedAt.ToLocalTime()</td>
+                                                    <td class="d-flex flex-wrap gap-2">
+                                                        <a class="btn btn-outline-secondary btn-sm" target="_blank" href="@($"/{d.FilePath}")">İndir / Gör</a>
+
+                                                        @if (CanEditDocs)
+                                                        {
+                                                            <!-- Değiştir -->
+                                                            <label class="btn btn-outline-primary btn-sm mb-0">
+                                                                Değiştir
+                                                                <InputFile class="d-none" OnChange="(e => OnReplaceFileSelected(e, d.Version))" accept=".pdf" />
+                                                            </label>
+                                                            <button class="btn btn-primary btn-sm"
+                                                                    disabled="@(replaceFile == null || replaceTargetVersion != d.Version || replacing)"
+                                                                    @onclick="DoReplace">
+                                                                Uygula
+                                                            </button>
+
+                                                            <!-- Sil (sadece son) -->
+                                                            <button class="btn btn-outline-danger btn-sm"
+                                                                    disabled="@(!isLatest || deleting)"
+                                                                    @onclick="(() => DoDelete(d.Version))">
+                                                                Sil (son)
+                                                            </button>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                @if (replaceTargetVersion != null && replaceFile != null)
+                                {
+                                    <div class="small text-muted mt-2">
+                                        Değiştirilecek: v@replaceTargetVersion — Dosya: @replaceFile.Name (@replaceFile.Size bayt)
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mesajlaşma + Onaylanan Başvurular -->
+                <div class="col-md-6">
+                    <div class="card-soft h-100 d-flex flex-column">
+                        <div class="p-3 fw-semibold d-flex align-items-center gap-2">
+                            <i class="bi bi-chat-dots"></i><span>Mesajlaşma</span>
+                        </div>
+                        <div class="px-3 pb-3 d-flex flex-column flex-grow-1">
+                            <div class="chat-box flex-grow-1">
+                                @if (messages == null || messages.Count == 0)
+                                {
+                                    <div class="text-muted">Mesaj yok.</div>
+                                }
+                                else
+                                {
+                                    @foreach (var m in messages)
+                                    {
+                                        <div class="mb-2">
+                                            <div class="small text-muted">
+                                                <strong>@(m.SenderId == me?.Id ? "Siz" : $"Kullanıcı #{m.SenderId}")</strong>
+                                                — @m.CreatedAt.ToLocalTime()
+                                            </div>
+                                            <div>@m.Body</div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                            <div class="mt-3">
+                                <textarea class="form-control" rows="2" @bind="messageText" placeholder="Öğretmeninize mesaj yazın..."></textarea>
+                                <button class="btn btn-gradient-primary mt-2 hover-lift" @onclick="SendMessage" disabled="@string.IsNullOrWhiteSpace(messageText)">Gönder</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (myApps != null)
+                    {
+                        var approved = myApps
+                        .Where(x => x.Status == InternshipStatus.AdminApproved)
+                        .OrderByDescending(x => x.UpdatedAt)
+                        .ToList();
+
+                        <div class="card-soft mt-3 p-0">
+                            <div class="p-3 fw-semibold d-flex align-items-center gap-2">
+                                <i class="bi bi-patch-check"></i><span>Onaylanan Başvurularım</span>
+                            </div>
+                            <div class="px-3 pb-3">
+                                @if (approved.Count == 0)
+                                {
+                                    <div class="text-muted">Henüz onaylanan başvuru yok.</div>
+                                }
+                                else
+                                {
+                                    <div class="scroll-container">
+                                        <table class="table table-sm align-middle table-sticky table-nowrap mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>Versiyon</th>
+                                                    <th>Onay Tarihi</th>
+                                                    <th>Belge</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var a in approved)
+                                                {
+                                                    var lastDoc = a.Documents?.OrderByDescending(d => d.Version).FirstOrDefault();
+                                                    <tr>
+                                                        <td>@a.Id</td>
+                                                        <td>v@a.CurrentVersion</td>
+                                                        <td>@a.UpdatedAt.ToLocalTime()</td>
+                                                        <td>
+                                                            @if (lastDoc != null)
+                                                            {
+                                                                <a class="btn btn-outline-success btn-sm" target="_blank" href="@($"/{lastDoc.FilePath}")">
+                                                                    Son PDF’i Gör/İndir
+                                                                </a>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="text-muted">Belge bulunamadı</span>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    ApplicationUser? me;
+    InternshipApplication? app;                 // aktif/çalışılan başvuru
+    List<InternshipApplication>? myApps;        // tüm başvurular
+    List<InternshipMessage>? messages;
+
+    IBrowserFile? selectedFile;
+    bool loading = true;
+    bool uploading = false;
+    string? uploadError;
+    string? successMessage;
+    string messageText = "";
+    bool CanUpload => !uploading && selectedFile != null;
+
+    IBrowserFile? replaceFile;
+    int? replaceTargetVersion;
+    bool replacing = false;
+    bool deleting = false;
+
+    bool CanEditDocs =>
+        app != null &&
+        (app.Status == InternshipStatus.NeedsFixByStudent || app.Status == InternshipStatus.InTeacherReview) &&
+        app.Status != InternshipStatus.AdminApproved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        me = await UserManager.GetUserAsync(auth.User);
+        if (me == null) { loading = false; return; }
+
+        app = await Internship.CreateOrGetActiveAsync(me.Id, termId: null);
+        myApps = await Internship.GetMyApplicationsAsync(me.Id);
+
+        await ReloadMessages();
+        loading = false;
+    }
+
+    private RenderFragment StatusBadge(InternshipStatus status) => builder =>
+    {
+        var (css, text) = status switch
+        {
+            InternshipStatus.InTeacherReview => ("bg-info", "Öğretmen İncelemesinde"),
+            InternshipStatus.InAdminReview => ("bg-warning text-dark", "Admin İncelemesinde"),
+            InternshipStatus.AdminApproved => ("bg-success", "Onaylandı (Final)"),
+            InternshipStatus.NeedsFixByStudent => ("bg-danger", "Düzeltme Gerekli"),
+            InternshipStatus.AdminRejectedWaitingTeacher => ("bg-secondary", "Admin Reddi — Öğretmen Bilgilendirecek"),
+            _ => ("bg-secondary", status.ToString())
+        };
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", $"badge {css}");
+        builder.AddContent(2, text);
+        builder.CloseElement();
+    };
+
+    void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        uploadError = null;
+        successMessage = null;
+        InvokeAsync(StateHasChanged);
+    }
+
+    async Task Upload()
+    {
+        if (app == null || me == null || selectedFile == null) return;
+
+        uploading = true;
+        uploadError = null;
+        successMessage = null;
+
+        try
+        {
+            using var read = selectedFile.OpenReadStream(10 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await read.CopyToAsync(ms);
+            ms.Position = 0;
+
+            var formFile = new FormFile(ms, 0, ms.Length, "file", selectedFile.Name)
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = selectedFile.ContentType,
+                ContentDisposition = $"form-data; name=\"file\"; filename=\"{selectedFile.Name}\""
+            };
+
+            await Internship.UploadPdfAsync(app.Id, formFile);
+
+            app = await Internship.GetApplicationAsync(app.Id);
+            successMessage = "PDF yüklendi.";
+            await ReloadMessages();
+        }
+        catch (Exception ex)
+        {
+            uploadError = ex.Message;
+        }
+        finally
+        {
+            uploading = false;
+            StateHasChanged();
+        }
+    }
+
+    async Task ReloadMessages()
+    {
+        if (app == null) return;
+        messages = await Internship.GetMessagesAsync(app.Id);
+    }
+
+    async Task SendMessage()
+    {
+        if (app == null || me == null || string.IsNullOrWhiteSpace(messageText)) return;
+        await Internship.SendMessageAsync(app.Id, me.Id, isToStudent: false, body: messageText);
+        messageText = "";
+        await ReloadMessages();
+    }
+
+    void OnReplaceFileSelected(InputFileChangeEventArgs e, int version)
+    {
+        replaceTargetVersion = version;
+        replaceFile = e.File;
+        InvokeAsync(StateHasChanged);
+    }
+
+    async Task DoReplace()
+    {
+        if (app == null || me == null || replaceFile == null || replaceTargetVersion == null) return;
+        replacing = true; uploadError = null; successMessage = null;
+        try
+        {
+            using var read = replaceFile.OpenReadStream(10 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await read.CopyToAsync(ms);
+            ms.Position = 0;
+
+            var formFile = new FormFile(ms, 0, ms.Length, "file", replaceFile.Name)
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = replaceFile.ContentType,
+                ContentDisposition = $"form-data; name=\"file\"; filename=\"{replaceFile.Name}\""
+            };
+
+            await Internship.ReplacePdfAsync(app.Id, replaceTargetVersion.Value, formFile, me.Id);
+
+            app = await Internship.GetApplicationAsync(app.Id);
+            successMessage = $"v{replaceTargetVersion} değiştirildi.";
+            replaceFile = null;
+            replaceTargetVersion = null;
+        }
+        catch (Exception ex) { uploadError = ex.Message; }
+        finally { replacing = false; StateHasChanged(); }
+    }
+
+    async Task DoDelete(int version)
+    {
+        if (app == null || me == null) return;
+        deleting = true; uploadError = null; successMessage = null;
+        try
+        {
+            await Internship.DeletePdfAsync(app.Id, version, me.Id);
+            app = await Internship.GetApplicationAsync(app.Id);
+            successMessage = $"v{version} silindi.";
+        }
+        catch (Exception ex) { uploadError = ex.Message; }
+        finally { deleting = false; StateHasChanged(); }
+    }
+}
+
+<style>
+    /* Mesaj alanı */
+    .chat-box {
+        max-height: 320px;
+        overflow: auto;
+        border: 1px solid #eef2f7;
+        border-radius: var(--radius-md);
+        padding: 10px;
+        background: #fff;
+    }
+
+    /* Tablo yoğunluğu + sticky başlık */
+    .table-sticky thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: linear-gradient(180deg,#ffffff 0%, #f2f6ff 100%);
+    }
+
+    /* Küçük ekran iyileştirme */
+    @@media (max-width: 576px) {
+        .chat-box
+
+    {
+        max-height: 260px;
+    }
+
+    }
+</style>

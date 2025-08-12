@@ -1,0 +1,213 @@
+﻿@page "/teacher/staj-inceleme"
+@attribute [Authorize(Roles = "Öğretmen")]
+@rendermode InteractiveServer
+
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@inject IInternshipService Internship
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<h3 class="mb-3">👨‍🏫 Staj Başvuruları (Öğretmen)</h3>
+
+@if (loading)
+{
+    <div class="text-muted">Yükleniyor...</div>
+}
+else
+{
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header fw-bold">İnceleme Kuyruğu</div>
+                <div class="card-body p-0">
+                    @if (apps == null || apps.Count == 0)
+                    {
+                        <div class="p-3 text-muted">Bekleyen başvuru yok.</div>
+                    }
+                    else
+                    {
+                        <table class="table table-hover table-sm mb-0">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Öğrenci</th>
+                                    <th>Durum</th>
+                                    <th>v</th>
+                                    <th>Oluşturma</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var a in apps)
+                                {
+                                    <tr class="@((selected?.Id == a.Id) ? "table-primary" : null)" @onclick="(() => Select(a))" style="cursor:pointer">
+                                        <td>@a.Id</td>
+                                        <td>@($"{a.Student?.Isim} {a.Student?.Soyisim}")</td>
+                                        <td>@StatusText(a.Status)</td>
+                                        <td>@a.CurrentVersion</td>
+                                        <td>@a.CreatedAt.ToLocalTime()</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header fw-bold">Detay</div>
+                <div class="card-body">
+                    @if (selected == null)
+                    {
+                        <div class="text-muted">Soldan bir başvuru seçin.</div>
+                    }
+                    else
+                    {
+                        <div class="mb-2">
+                            <span class="badge bg-secondary me-2">#@selected.Id</span>
+                            <strong>@selected.Student?.Isim @selected.Student?.Soyisim</strong>
+                            <div class="small text-muted">Durum: @StatusText(selected.Status) — v@selected.CurrentVersion</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="fw-bold">Son PDF</div>
+                            @{
+                                var last = selected.Documents?.OrderByDescending(d => d.Version).FirstOrDefault();
+                            }
+                            @if (last != null)
+                            {
+                                <a class="btn btn-outline-secondary btn-sm" target="_blank" href="@($"/{last.FilePath}")">v@last.Version indir/gör</a>
+                            }
+                            else
+                            {
+                                <div class="text-muted">Dosya yok.</div>
+                            }
+                        </div>
+
+                        @if (selected.Status == InternshipStatus.InTeacherReview)
+                        {
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-success" @onclick="Approve">Onayla → Admin</button>
+                                <div class="flex-grow-1">
+                                    <input class="form-control" placeholder="Reddetme gerekçesi" @bind="rejectReason" />
+                                </div>
+                                <button class="btn btn-danger" @onclick="Reject" disabled="@string.IsNullOrWhiteSpace(rejectReason)">Reddet</button>
+                            </div>
+                        }
+                        else if (selected.Status == InternshipStatus.AdminRejectedWaitingTeacher)
+                        {
+                            <div class="mb-2 text-muted small">Admin reddetti. Öğrenciyi bilgilendirin.</div>
+                            <div class="d-flex gap-2">
+                                <div class="flex-grow-1">
+                                    <input class="form-control" placeholder="Öğrenciye mesaj" @bind="notifyBody" />
+                                </div>
+                                <button class="btn btn-warning" @onclick="NotifyStudent" disabled="@string.IsNullOrWhiteSpace(notifyBody)">Öğrenciye Bildir</button>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(info))
+                        {
+                            <div class="mt-3 text-success">@info</div>
+                        }
+                        @if (!string.IsNullOrEmpty(err))
+                        {
+                            <div class="mt-3 text-danger">@err</div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    ApplicationUser? me;
+    bool loading = true;
+
+    List<InternshipApplication>? apps;
+    InternshipApplication? selected;
+    string rejectReason = "";
+    string notifyBody = "";
+    string? info;
+    string? err;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        me = await UserManager.GetUserAsync(auth.User);
+        await Reload();
+        loading = false;
+    }
+
+    async Task Reload()
+    {
+        if (me == null) return;
+        apps = await Internship.ListForTeacherAsync(me.Id);
+        if (selected != null)
+            selected = apps.FirstOrDefault(a => a.Id == selected.Id);
+        StateHasChanged();
+    }
+
+    void Select(InternshipApplication a)
+    {
+        selected = a;
+        rejectReason = "";
+        notifyBody = "";
+        info = err = null;
+    }
+
+    string StatusText(InternshipStatus s) => s switch
+    {
+        InternshipStatus.InTeacherReview => "Öğretmen İncelemesinde",
+        InternshipStatus.AdminRejectedWaitingTeacher => "Admin Reddi — Öğretmen Bilgilendirecek",
+        InternshipStatus.InAdminReview => "Admin İncelemesinde",
+        InternshipStatus.NeedsFixByStudent => "Düzeltme Gerekli",
+        InternshipStatus.AdminApproved => "Onaylandı",
+        _ => s.ToString()
+    };
+
+    async Task Approve()
+    {
+        if (selected == null || me == null) return;
+        info = err = null;
+        try
+        {
+            await Internship.TeacherApproveAsync(selected.Id, me.Id);
+            info = "Onaylandı. Admin'e gönderildi.";
+            await Reload();
+        }
+        catch (Exception ex) { err = ex.Message; }
+    }
+
+    async Task Reject()
+    {
+        if (selected == null || me == null || string.IsNullOrWhiteSpace(rejectReason)) return;
+        info = err = null;
+        try
+        {
+            await Internship.TeacherRejectAsync(selected.Id, me.Id, rejectReason);
+            info = "Reddedildi. Öğrenci düzeltme yapacak.";
+            await Reload();
+        }
+        catch (Exception ex) { err = ex.Message; }
+    }
+
+    async Task NotifyStudent()
+    {
+        if (selected == null || me == null || string.IsNullOrWhiteSpace(notifyBody)) return;
+        info = err = null;
+        try
+        {
+            await Internship.NotifyStudentAfterAdminRejectAsync(selected.Id, me.Id, notifyBody);
+            info = "Öğrenci bilgilendirildi. Durum: Düzeltme bekleniyor.";
+            await Reload();
+        }
+        catch (Exception ex) { err = ex.Message; }
+    }
+}

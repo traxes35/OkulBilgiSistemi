@@ -1,0 +1,286 @@
+﻿@page "/admin/home"
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+
+@inject ITermService TermService
+@inject ApplicationDbContext Db
+@inject AuthenticationStateProvider AuthProvider
+@inject UserManager<ApplicationUser> UserManager
+
+<div class="page-bg py-3">
+    <div class="container">
+
+        <!-- Başlık -->
+        <div class="header-wrap mb-3">
+            <div class="d-flex align-items-center gap-2">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-speedometer2 fs-5"></i>
+                </div>
+                <div>
+                    <h4 class="mb-1">Yönetim Paneli</h4>
+                    <span class="badge-title">@(me?.Isim ?? "Admin")</span>
+                </div>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="card-soft p-4 text-muted">Yükleniyor...</div>
+        }
+        else
+        {
+            <!-- 1) Aktif Dönem -->
+            <div class="card-soft p-3 mb-2 hover-lift">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h6 class="mb-0 fw-semibold"><i class="bi bi-calendar2-week me-2"></i>Aktif Dönem</h6>
+                    <span class="count-chip px-2 py-1">
+                        @(activeTerm is null ? "—" : $"{GetSemesterName(activeTerm.Semester)} {activeTerm.Year}")
+                    </span>
+                </div>
+                <div class="mt-2 text-subtle">
+                    @if (activeTerm is null)
+                    {
+                        <span>Aktif dönem bulunamadı.</span>
+                    }
+                    else
+                    {
+                        <span>Yıl: <strong>@activeTerm.Year</strong> • Yarıyıl: <strong>@GetSemesterName(activeTerm.Semester)</strong></span>
+                    }
+                </div>
+            </div>
+
+            <!-- 2) Hızlı Durum (özet kutular) -->
+            <div class="row g-2 mb-2">
+                <div class="col-12 col-md-4">
+                    <div class="card-soft p-3 h-100 hover-lift">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-semibold"><i class="bi bi-toggle2-on me-2"></i>Ders Seçimi</h6>
+                            <span class="badge-title">Genel Ayar</span>
+                        </div>
+                        <div class="mt-2">
+                            @if (isSelectionOpen)
+                            {
+                                <span class="pill pill-mandatory">Durum: <strong>Açık</strong></span>
+                            }
+                            else
+                            {
+                                <span class="pill pill-optional">Durum: <strong>Kapalı</strong></span>
+                            }
+                        </div>
+                        <div class="text-subtle mt-1">CourseSelectionSettings tablosundan çekilir.</div>
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <div class="card-soft p-3 h-100 hover-lift">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-semibold"><i class="bi bi-journal-text me-2"></i>Dersler (Aktif Dönem)</h6>
+                            <span class="badge-title">Özet</span>
+                        </div>
+                        <div class="mt-2 display-6 fw-bold">@coursesInTerm</div>
+                        <div class="text-subtle">Açılan ders sayısı</div>
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <div class="card-soft p-3 h-100 hover-lift">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-semibold"><i class="bi bi-people me-2"></i>Katılım (Aktif Dönem)</h6>
+                            <span class="badge-title">Özet</span>
+                        </div>
+                        <div class="mt-2 d-flex gap-4">
+                            <div>
+                                <div class="fw-bold">@teachersInTerm</div>
+                                <div class="text-subtle">Öğretmen</div>
+                            </div>
+                            <div>
+                                <div class="fw-bold">@studentsWithSelections</div>
+                                <div class="text-subtle">Seçim Yapan Öğrenci</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3) İş Listesi -->
+            <div class="row g-2">
+                <!-- Onay Bekleyen Sorumluluklar -->
+                <div class="col-12 col-lg-6">
+                    <div class="card-soft p-3 h-100 hover-lift">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <h6 class="mb-0 fw-semibold"><i class="bi bi-hourglass-split me-2"></i>Onay Bekleyen Ders Sorumlulukları</h6>
+                            <span class="count-chip px-2 py-1">@pendingResponsibilities adet</span>
+                        </div>
+
+                        @if (!pendingList.Any())
+                        {
+                            <div class="text-muted">Onay bekleyen kayıt bulunmuyor.</div>
+                        }
+                        else
+                        {
+                            <div class="scroll-container">
+                                <table class="table table-sm table-colorful table-sticky table-nowrap mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Ders</th>
+                                            <th>Öğretmen</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in pendingList)
+                                        {
+                                            <tr>
+                                                <td>@item.CourseName</td>
+                                                <td>@(string.IsNullOrWhiteSpace(item.TeacherName) ? "—" : item.TeacherName)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Düşük Kontenjanlı Dersler -->
+                <div class="col-12 col-lg-6">
+                    <div class="card-soft p-3 h-100 hover-lift">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <h6 class="mb-0 fw-semibold"><i class="bi bi-exclamation-triangle me-2"></i>Düşük Kontenjanlı Dersler</h6>
+                            <span class="badge-title">İlk 10</span>
+                        </div>
+
+                        @if (!lowQuota.Any())
+                        {
+                            <div class="text-muted">Düşük kontenjanlı ders bulunmuyor.</div>
+                        }
+                        else
+                        {
+                            <div class="scroll-container">
+                                <table class="table table-sm table-colorful table-sticky table-nowrap mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Kod</th>
+                                            <th>Ders</th>
+                                            <th>Kalan</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var c in lowQuota)
+                                        {
+                                            <tr>
+                                                <td><span class="pill pill-code">@c.CourseCode</span></td>
+                                                <td>@c.CourseName</td>
+                                                <td><span class="pill pill-optional">@c.Quota</span></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool isLoading = true;
+
+    private ApplicationUser? me;
+    private Term? activeTerm;
+
+    // Hızlı Durum
+    private bool isSelectionOpen;
+    private int coursesInTerm;
+    private int teachersInTerm;
+    private int studentsWithSelections;
+
+    // İş listeleri
+    private int pendingResponsibilities;
+    private List<(string CourseName, string TeacherName)> pendingList = new();
+    private List<Course> lowQuota = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var auth = await AuthProvider.GetAuthenticationStateAsync();
+            me = await UserManager.GetUserAsync(auth.User);
+
+            activeTerm = await TermService.GetActiveTermAsync();
+
+            // Ders seçimi ayarı (en son kayıt varsayımı)
+            var selection = await Db.CourseSelectionSettings
+                                   .OrderByDescending(x => x.Id)
+                                   .FirstOrDefaultAsync();
+            isSelectionOpen = selection?.IsSelectionOpen ?? false;
+
+            if (activeTerm != null)
+            {
+                // Aktif dönemde açılan ders sayısı
+                coursesInTerm = await Db.Courses
+                    .CountAsync(c => c.TermId == activeTerm.Id);
+
+                // Aktif dönemde görevli öğretmen sayısı (distinct)
+                teachersInTerm = await Db.TeacherCourses
+                    .Where(tc => tc.Course.TermId == activeTerm.Id)
+                    .Select(tc => tc.UserId)
+                    .Distinct()
+                    .CountAsync();
+
+                // Aktif dönemde seçim yapan öğrenci sayısı (distinct)
+                studentsWithSelections = await Db.StudentCourses
+                    .Where(sc => sc.TermId == activeTerm.Id && sc.IsActive)
+                    .Select(sc => sc.UserId)
+                    .Distinct()
+                    .CountAsync();
+
+                // Onay bekleyen sorumluluklar
+                pendingResponsibilities = await Db.TeacherCourses
+                    .Where(tc => tc.Course.TermId == activeTerm.Id &&
+                                 (tc.IsResponsibilityApproved == null || tc.IsResponsibilityApproved == false))
+                    .CountAsync();
+
+                // Liste (Ders + Öğretmen adı) — join Users üzerinden
+                pendingList = await Db.TeacherCourses
+                    .Where(tc => tc.Course.TermId == activeTerm.Id &&
+                                 (tc.IsResponsibilityApproved == null || tc.IsResponsibilityApproved == false))
+                    .Select(tc => new
+                    {
+                        tc.Course.CourseName,
+                        TeacherName = Db.Users
+                            .Where(u => u.Id == tc.UserId)
+                            .Select(u => u.Isim)
+                            .FirstOrDefault()
+                    })
+                    .OrderBy(x => x.CourseName)
+                    .Take(50)
+                    .Select(x => new ValueTuple<string, string>(x.CourseName!, x.TeacherName ?? ""))
+                    .ToListAsync();
+
+                // Düşük kontenjanlı dersler (ör. kalan <= 5)
+                lowQuota = await Db.Courses
+                    .Where(c => c.TermId == activeTerm.Id && c.Quota <= 5)
+                    .OrderBy(c => c.Quota)
+                    .ThenBy(c => c.CourseName)
+                    .Take(10)
+                    .ToListAsync();
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string GetSemesterName(int semester) => semester == 1 ? "Güz" : "Bahar";
+}

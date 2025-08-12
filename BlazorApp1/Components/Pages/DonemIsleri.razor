@@ -1,0 +1,293 @@
+﻿@page "/admin/donem-isleri"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@inject ITermService TermService
+
+@* Bu satır, sayfaya ÖZEL css'i head içine ekler (App.razor'da <HeadOutlet/> olduğundan emin ol) *@
+<HeadContent>
+    <link rel="stylesheet" href="css/donem-isleri.css" />
+</HeadContent>
+
+@if (showConflictWarning)
+{
+    <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+        <strong>Hata:</strong> Aynı anda yalnızca bir aktif dönem olabilir!
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Kapat"></button>
+    </div>
+}
+
+<div class="page-bg">
+    <div class="container py-3 py-md-4">
+
+        <!-- Başlık -->
+        <div class="header-wrap d-flex align-items-center gap-3 mb-3">
+            <div class="rounded-circle header-icon d-flex align-items-center justify-content-center">
+                📅
+            </div>
+            <div>
+                <h2 class="h4 mb-0">Dönem Yönetimi</h2>
+                <small class="text-muted">Aktif dönemi ayarla, yeni dönem ekle</small>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <!-- Yeni Dönem Ekle -->
+            <div class="col-12 col-lg-5">
+                <div class="card card-soft">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3">
+                            <span class="badge badge-title">➕ Yeni Dönem Ekle</span>
+                        </h5>
+
+                        <div class="row g-3">
+                            <!-- Yıl -->
+                            <div class="col-12 col-sm-6">
+                                <label class="form-label">Yıl</label>
+                                <div class="input-group">
+                                    <button class="btn btn-outline-secondary rounded-start-pill hover-lift"
+                                            type="button"
+                                            @onclick="OpenYearPicker"
+                                            title="Yıl seçici">
+                                        📆
+                                    </button>
+                                    <input type="number"
+                                           class="form-control rounded-end-pill"
+                                           min="2000" max="2100"
+                                           inputmode="numeric"
+                                           @bind="newTerm.Year" />
+                                </div>
+                            </div>
+
+                            <!-- Yarıyıl -->
+                            <div class="col-12 col-sm-6">
+                                <label class="form-label">Yarıyıl</label>
+                                <div class="d-flex gap-2">
+                                    <input type="radio" class="btn-check" name="semester" id="guz" value="1" checked="@(newTerm.Semester == 1)" @onchange="() => newTerm.Semester = 1">
+                                    <label class="btn btn-outline-primary w-100 rounded-pill hover-lift" for="guz">Güz</label>
+
+                                    <input type="radio" class="btn-check" name="semester" id="bahar" value="2" checked="@(newTerm.Semester == 2)" @onchange="() => newTerm.Semester = 2">
+                                    <label class="btn btn-outline-primary w-100 rounded-pill hover-lift" for="bahar">Bahar</label>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <button class="btn btn-gradient-primary w-100 rounded-pill hover-lift" @onclick="AddTermAsync">
+                                    Ekle
+                                </button>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(adminError))
+                            {
+                                <div class="col-12">
+                                    <div class="alert alert-danger mb-0">@adminError</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tanımlı Dönemler -->
+            <div class="col-12 col-lg-7">
+                <div class="card card-soft">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <h5 class="card-title mb-0">
+                                <span class="badge badge-title">Tanımlı Dönemler</span>
+                            </h5>
+                            <span class="badge count-chip">Toplam: @terms?.Count()</span>
+                        </div>
+
+                        @if (terms is null)
+                        {
+                            <p class="text-muted mb-0"><em>Dönem verileri yükleniyor...</em></p>
+                        }
+                        else if (!terms.Any())
+                        {
+                            <p class="fw-semibold mb-0">Hiç dönem tanımlanmamış.</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive shadow-sm rounded-4 overflow-hidden table-sticky">
+                                <table class="table table-sm align-middle mb-0 table-nowrap table-colorful">
+                                    <thead>
+                                        <tr>
+                                            <th class="d-none d-md-table-cell">ID</th>
+                                            <th>Yıl</th>
+                                            <th>Yarıyıl</th>
+                                            <th class="text-end">İşlemler</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var termItem in terms)
+                                        {
+                                            <tr>
+                                                <td class="d-none d-md-table-cell">@termItem.Id</td>
+                                                <td><span class="fw-semibold">@termItem.Year</span></td>
+                                                <td>
+                                                    <span class="badge semester-chip">@((termItem.Semester == 1) ? "Güz" : "Bahar")</span>
+                                                    @if (termItem.IsActive)
+                                                    {
+                                                        <span class="badge status-chip-active ms-2">Aktif</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge status-chip-passive ms-2">Pasif</span>
+                                                    }
+                                                </td>
+                                                <td class="text-end">
+                                                    <div class="btn-group">
+                                                        <button class="btn btn-sm rounded-pill hover-lift @(termItem.IsActive ? "btn-outline-dark" : "btn-outline-success")"
+                                                                @onclick="async () => await ToggleActive(termItem)">
+                                                            @(termItem.IsActive ? "Pasif Yap" : "Aktif Yap")
+                                                        </button>
+                                                        <button class="btn btn-sm btn-gradient-danger rounded-pill ms-1 hover-lift"
+                                                                @onclick="() => DeleteTermAsync(termItem.Id)">
+                                                            <span class="d-none d-sm-inline">Sil</span> 🗑️
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- TAM EKRAN YIL SEÇİCİ (geniş ve canlı) -->
+<div class="overlay @(isYearPickerOpen ? "show" : "")" @onclick="CloseYearPicker">
+    <div class="sheet" @onclick:stopPropagation="true">
+        <div class="sheet-header">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge picker-title">Yıl Seç</span>
+                <small class="text-white-50">@(yearBlockStart) – @(yearBlockStart + blockSize - 1)</small>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-outline-light rounded-pill hover-lift" @onclick="PrevBlock" title="Önceki blok">‹‹</button>
+                <button class="btn btn-sm btn-outline-light rounded-pill hover-lift" @onclick="JumpToCurrent" title="Bu yıl">@DateTime.Now.Year</button>
+                <button class="btn btn-sm btn-outline-light rounded-pill hover-lift" @onclick="NextBlock" title="Sonraki blok">››</button>
+                <button class="btn btn-sm btn-outline-light rounded-pill ms-1" @onclick="CloseYearPicker" title="Kapat">✕</button>
+            </div>
+        </div>
+
+        <div class="sheet-body">
+            <div class="auto-grid year-grid-wide">
+                @foreach (var y in YearCandidates)
+                {
+                    <button type="button"
+                            class="btn year-btn hover-lift @(newTerm.Year == y ? "btn-gradient-primary text-white year-selected" : "btn-light")"
+                            @onclick="() => SelectYear(y)">
+                        @(newTerm.Year == y ? "✓ " : "") @y
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="sheet-footer">
+            <div class="d-flex justify-content-between w-100">
+                <button class="btn btn-outline-secondary rounded-pill hover-lift" @onclick="ClearYear">Temizle</button>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-primary rounded-pill hover-lift" @onclick="JumpToCurrent">Bu Yıl</button>
+                    <button class="btn btn-gradient-primary rounded-pill hover-lift" @onclick="CloseYearPicker">Tamam</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Term>? terms;
+    private Term newTerm = new() { Year = DateTime.Now.Year, Semester = 1 };
+    private string adminError = "";
+    private bool showConflictWarning = false;
+
+    // Yıl seçici durum
+    private bool isYearPickerOpen = false;
+    private int blockSize = 24; // aynı anda 24 yıl
+    private int yearBlockStart;
+    private IEnumerable<int> YearCandidates => Enumerable.Range(yearBlockStart, blockSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        terms = await TermService.GetAllTermsAsync();
+        AlignBlockToSelected();
+    }
+
+    /* ==== Yıl seçici kontrolleri ==== */
+    private void AlignBlockToSelected()
+    {
+        var start = newTerm.Year - (blockSize / 2);
+        start = Math.Max(2000, Math.Min(start, 2100 - blockSize + 1));
+        yearBlockStart = start;
+    }
+    private void OpenYearPicker() { AlignBlockToSelected(); isYearPickerOpen = true; }
+    private void CloseYearPicker() => isYearPickerOpen = false;
+
+    private void PrevBlock() { yearBlockStart = Math.Max(2000, yearBlockStart - blockSize); }
+    private void NextBlock() { yearBlockStart = Math.Min(2100 - blockSize + 1, yearBlockStart + blockSize); }
+    private void JumpToCurrent() { newTerm.Year = DateTime.Now.Year; AlignBlockToSelected(); }
+    private void ClearYear() { newTerm.Year = 0; }
+    private void SelectYear(int y) { newTerm.Year = y; isYearPickerOpen = false; }
+
+    /* ==== Dönem CRUD ==== */
+    private async Task AddTermAsync()
+    {
+        if (newTerm.Year < 2000 || newTerm.Year > 2100)
+        {
+            adminError = "Yıl 2000-2100 arasında olmalıdır.";
+            return;
+        }
+        if (newTerm.Semester != 1 && newTerm.Semester != 2)
+        {
+            adminError = "Yarıyıl 1 (Güz) veya 2 (Bahar) olmalıdır.";
+            return;
+        }
+
+        adminError = "";
+        await TermService.AddTermAsync(newTerm);
+        newTerm = new Term { Year = DateTime.Now.Year, Semester = 1 };
+        terms = await TermService.GetAllTermsAsync();
+    }
+
+    private async Task DeleteTermAsync(int id)
+    {
+        await TermService.DeleteTermAsync(id);
+        terms = await TermService.GetAllTermsAsync();
+    }
+
+    private async Task ToggleActive(Term term)
+    {
+        if (!term.IsActive)
+        {
+            var active = terms?.FirstOrDefault(t => t.IsActive && t.Id != term.Id);
+            if (active != null)
+            {
+                showConflictWarning = true;
+                _ = AutoCloseWarningAsync();
+                return;
+            }
+        }
+
+        term.IsActive = !term.IsActive;
+        await TermService.UpdateTermAsync(term);
+        terms = await TermService.GetAllTermsAsync();
+    }
+
+    private async Task AutoCloseWarningAsync()
+    {
+        await Task.Delay(3000);
+        showConflictWarning = false;
+        StateHasChanged();
+    }
+}

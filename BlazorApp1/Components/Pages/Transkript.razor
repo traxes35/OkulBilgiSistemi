@@ -1,0 +1,273 @@
+﻿@page "/student/transkript"
+@attribute [Authorize(Roles = "Öğrenci")]
+@rendermode InteractiveServer
+
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+
+@inject ITranscriptService TranscriptService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+
+
+<HeadContent>
+    <!-- Sayfa-özel minik css -->
+    <link rel="stylesheet" href="css/student-transkript.css" />
+</HeadContent>
+<div class="page-bg">
+    <div class="container-fluid py-3">
+
+        <!-- Header -->
+        <div class="card-soft p-3 mb-3 header-wrap">
+            <div class="d-flex align-items-center gap-3">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-file-text fs-5"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h3 class="mb-1 page-title">Transkript</h3>
+
+                    <!-- ÖĞRENCİ ÖZET BİLGİLERİ (badge-title kullan) -->
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge-title responsive-badge" title="Öğrencinin sınıf seviyesi">
+                            Sınıf:
+                            <strong class="ms-1">@((student?.SinifSeviyesi?.ToString() ?? "-"))</strong>
+                        </span>
+                        <span class="badge-title responsive-badge" title="Öğrencinin bölümü">
+                            Bölüm:
+                            <strong class="ms-1">@((student?.Department?.Name ?? "-"))</strong>
+                        </span>
+                        <span class="badge-title responsive-badge" title="Toplam transkript kaydı">
+                            Kayıt:
+                            <strong class="ms-1">@transcriptRecords.Count</strong>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn-gradient-primary hover-lift" @onclick="GenerateTranscriptAsync">
+                        <i class="bi bi-plus-circle me-1"></i> Transkript Oluştur
+                    </button>
+                    <button class="btn btn-outline-secondary hover-lift" @onclick="SyncTranscriptAsync">
+                        <i class="bi bi-arrow-clockwise me-1"></i> Notları Güncelle
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="alert alert-info">@Message</div>
+        }
+
+        @if (yearBuckets.Count == 0)
+        {
+            <div class="card-soft p-3 text-muted">Henüz transkript bilgisi yok.</div>
+        }
+        else
+        {
+            int genelToplamAKTS = 0;
+            double genelToplamKatsayi = 0;
+            int genelToplamAKTSOranli = 0;
+
+            @foreach (var y in yearBuckets.OrderBy(y => y.Year))
+            {
+                var guz = y.Guz;
+                var bahar = y.Bahar;
+
+                foreach (var r in guz.Concat(bahar).Where(r => r.GradeCoefficient.HasValue && r.Course != null))
+                {
+                    genelToplamAKTS += r.Course!.Credit;
+                    genelToplamKatsayi += r.Course!.Credit * r.GradeCoefficient!.Value;
+                    genelToplamAKTSOranli += r.Course!.Credit;
+                }
+
+                <div class="card-soft p-3 mb-3 avoid-break">
+                    <div class="d-flex align-items-center gap-2 pb-2 flex-wrap">
+                        <i class="bi bi-calendar3"></i>
+                        <!-- Yıl başlığı: dinamik boyut -->
+                        <strong class="year-title">@y.Year Akademik Yılı</strong>
+                    </div>
+
+                    <div class="transcript-grid">
+                        <!-- Güz -->
+                        <div class="term-card">
+                            <div class="term-card-header">
+                                <span class="pill pill-term">Güz @y.Year</span>
+                                <span class="ms-auto small text-muted">
+                                    ANO: @(CalculateGPA(guz)?.ToString("0.00") ?? "-") • D.AKTS: @TotalAKTS(guz)
+                                </span>
+                            </div>
+                            <div class="term-card-body">
+                                @if (guz.Count == 0)
+                                {
+                                    <div class="text-muted text-center py-3">— Kayıt yok —</div>
+                                }
+                                else
+                                {
+                                    <table class="table table-sm table-sticky table-colorful table-nowrap mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Kod</th>
+                                                <th>Ders</th>
+                                                <th>AKTS</th>
+                                                <th>Not</th>
+                                                <th>Harf</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var r in guz)
+                                            {
+                                                <tr>
+                                                    <td><span class="pill pill-code">@((r.Course?.CourseCode.ToString() ?? "—"))</span></td>
+                                                    <td>@(r.Course?.CourseName ?? r.PlaceholderName ?? "—")</td>
+                                                    <td><span class="pill pill-credit">@((r.Course?.Credit.ToString()) ?? "—")</span></td>
+                                                    <td>@(r.NumericGrade?.ToString() ?? (r.CourseId == null ? "—" : "Bekleniyor"))</td>
+                                                    <td class="@(r.LetterGrade == "FF" ? "text-danger fw-bold" : null)">@((r.LetterGrade) ?? "—")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Bahar -->
+                        <div class="term-card">
+                            <div class="term-card-header">
+                                <span class="pill pill-term">Bahar @y.Year</span>
+                                <span class="ms-auto small text-muted">
+                                    ANO: @(CalculateGPA(bahar)?.ToString("0.00") ?? "-") • D.AKTS: @TotalAKTS(bahar)
+                                </span>
+                            </div>
+                            <div class="term-card-body">
+                                @if (bahar.Count == 0)
+                                {
+                                    <div class="text-muted text-center py-3">— Kayıt yok —</div>
+                                }
+                                else
+                                {
+                                    <table class="table table-sm table-sticky table-colorful table-nowrap mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Kod</th>
+                                                <th>Ders</th>
+                                                <th>AKTS</th>
+                                                <th>Not</th>
+                                                <th>Harf</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var r in bahar)
+                                            {
+                                                <tr>
+                                                    <td><span class="pill pill-code">@((r.Course?.CourseCode.ToString() ?? "—"))</span></td>
+                                                    <td>@(r.Course?.CourseName ?? r.PlaceholderName ?? "—")</td>
+                                                    <td><span class="pill pill-credit">@((r.Course?.Credit.ToString()) ?? "—")</span></td>
+                                                    <td>@(r.NumericGrade?.ToString() ?? (r.CourseId == null ? "—" : "Bekleniyor"))</td>
+                                                    <td class="@(r.LetterGrade == "FF" ? "text-danger fw-bold" : null)">@((r.LetterGrade) ?? "—")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="alert alert-dark text-end mt-3">
+                <strong>AGNO:</strong> @(genelToplamAKTSOranli > 0 ? (genelToplamKatsayi / genelToplamAKTSOranli).ToString("0.00") : "-")
+                <span class="ms-3"><strong>G.AKTS:</strong> @genelToplamAKTS</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<TranscriptRecord> transcriptRecords = new();
+    private Dictionary<string, List<TranscriptRecord>> groupedByTerm = new(); // korunuyor
+    private List<YearBucket> yearBuckets = new(); // yeni: UI için yıl-bazlı 2 sütun
+    private string? Message;
+    private ApplicationUser? student;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
+        student = await UserManager.GetUserAsync(user);
+        await LoadTranscriptAsync();
+    }
+
+    private async Task LoadTranscriptAsync()
+    {
+        transcriptRecords = await TranscriptService.GetTranscriptAsync(student!.Id);
+
+        // Mevcut grouping (dokunmadım)
+        groupedByTerm = transcriptRecords
+            .GroupBy(r => $"{r.Term.Year} - {r.Term.Semester}")
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(r => r.Course?.CourseName ?? r.PlaceholderName).ToList()
+            );
+
+        // Yeni: yıl bazlı 2 sütun (Güz=1, Bahar=2)
+        yearBuckets = transcriptRecords
+            .Where(r => r.Term != null)
+            .GroupBy(r => r.Term.Year)
+            .Select(g =>
+            {
+                var guz = g.Where(r => r.Term.Semester == 1)
+                           .OrderBy(r => r.Course?.CourseName ?? r.PlaceholderName).ToList();
+                var bahar = g.Where(r => r.Term.Semester == 2)
+                             .OrderBy(r => r.Course?.CourseName ?? r.PlaceholderName).ToList();
+
+                return new YearBucket { Year = g.Key, Guz = guz, Bahar = bahar };
+            })
+            .OrderBy(y => y.Year)
+            .ToList();
+    }
+
+    private async Task GenerateTranscriptAsync()
+    {
+        var activeTerm = await TranscriptService.GetActiveTermAsync();
+        if (activeTerm == null)
+        {
+            Message = "❌ Aktif dönem bulunamadı!";
+            return;
+        }
+
+        await TranscriptService.GenerateTranscriptTemplateAsync(student!.Id);
+        await LoadTranscriptAsync();
+        Message = "✅ Transkript başarıyla oluşturuldu.";
+    }
+
+    private async Task SyncTranscriptAsync()
+    {
+        await TranscriptService.SyncTranscriptWithGradesAsync(student!.Id);
+        await LoadTranscriptAsync();
+        Message = "🔄 Notlar başarıyla güncellendi.";
+    }
+
+    private double? CalculateGPA(List<TranscriptRecord> records)
+    {
+        var graded = records.Where(r => r.GradeCoefficient.HasValue && r.Course != null).ToList();
+        var totalCredits = graded.Sum(r => r.Course!.Credit);
+        if (totalCredits == 0) return null;
+
+        var weightedTotal = graded.Sum(r => r.Course!.Credit * r.GradeCoefficient!.Value);
+        return Math.Round(weightedTotal / totalCredits, 2);
+    }
+
+    private int TotalAKTS(List<TranscriptRecord> records)
+        => records.Where(r => r.Course != null).Sum(r => r.Course!.Credit);
+
+    private class YearBucket
+    {
+        public int Year { get; set; }
+        public List<TranscriptRecord> Guz { get; set; } = new();
+        public List<TranscriptRecord> Bahar { get; set; } = new();
+    }
+}

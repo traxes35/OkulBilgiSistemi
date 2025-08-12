@@ -1,0 +1,62 @@
+﻿/* wwwroot/css/donem-isleri.css
+   Bu sayfaya ÖZEL küçük eklemeler (core temayı kullanır)
+*/
+
+/* Yarıyıl ve durum rozetleri */
+.semester-chip {
+    background: linear-gradient(90deg,rgba(255,138,0,.18),rgba(255,193,7,.18));
+    border: 1px solid rgba(255,138,0,.35);
+    color: #7c4a03;
+    border-radius: 999px;
+}
+
+.status-chip-active {
+    background: linear-gradient(90deg,rgba(25,135,84,.18),rgba(40,167,69,.18));
+    border: 1px solid rgba(25,135,84,.35);
+    color: #0f5132;
+    border-radius: 999px;
+}
+
+.status-chip-passive {
+    background: linear-gradient(90deg,rgba(108,117,125,.18),rgba(173,181,189,.18));
+    border: 1px solid rgba(108,117,125,.35);
+    color: #374151;
+    border-radius: 999px;
+}
+
+/* Yıl seçici butonları */
+.year-btn {
+    border-radius: 14px;
+    border: 1px solid #e5e7eb;
+    white-space: nowrap;
+    padding: .85rem 1rem;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.year-selected {
+    box-shadow: 0 0 0 .22rem rgba(61,176,255,.22), 0 12px 28px rgba(61,176,255,.28);
+    border-color: rgba(61,176,255,.85) !important;
+}
+
+/* Yıl grid’ini genişlet (core’daki .auto-grid’i kullanıyoruz) */
+.year-grid-wide {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 14px;
+}
+
+/* Mobil */
+@media (max-width:576px) {
+    .year-grid-wide {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 12px;
+    }
+
+    .year-btn {
+        height: 60px;
+    }
+}

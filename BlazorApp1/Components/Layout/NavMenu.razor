@@ -1,0 +1,90 @@
+﻿@using BlazorApp1.Data
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+
+@inject AuthenticationStateProvider AuthProvider
+
+@code {
+    [Parameter] public string HomeHref { get; set; } = "/home";
+    [Parameter] public string? CurrentUrl { get; set; }
+}
+
+<!-- Genel -->
+<div class="nav-section">
+    <div class="nav-title">Genel</div>
+    <NavLink class="nav-link" href="@HomeHref" Match="NavLinkMatch.All">
+        <span class="left-accent"></span>
+        <i class="bi bi-house-door-fill"></i>
+        <span class="nav-label">Ana Sayfa</span>
+    </NavLink>
+</div>
+
+<!-- Admin -->
+<AuthorizeView Roles="Admin">
+    <div class="nav-section">
+        <div class="nav-title">👑 Admin</div>
+        <NavLink class="nav-link" href="/admin/users"><span class="left-accent"></span><i class="bi bi-people-fill"></i><span class="nav-label">Kullanıcı Yönetimi</span></NavLink>
+        <NavLink class="nav-link" href="/admin/donem-isleri"><span class="left-accent"></span><i class="bi bi-calendar-event"></i><span class="nav-label">Dönem İşlemleri</span></NavLink>
+        <NavLink class="nav-link" href="/admin/ekle-ders"><span class="left-accent"></span><i class="bi bi-plus-circle"></i><span class="nav-label">Ders Ekle</span></NavLink>
+        <NavLink class="nav-link" href="/admin/course-assignment"><span class="left-accent"></span><i class="bi bi-calendar-plus"></i><span class="nav-label">Ders Atama Paneli</span></NavLink>
+        <NavLink class="nav-link" href="/admin/selection-control"><span class="left-accent"></span><i class="bi bi-toggle2-on"></i><span class="nav-label">Ders Seçim Kontrolü</span></NavLink>
+        <NavLink class="nav-link" href="/admin/staj-inceleme"><span class="left-accent"></span><i class="bi bi-clipboard-check"></i><span class="nav-label">Staj İnceleme</span></NavLink>
+    </div>
+</AuthorizeView>
+
+<!-- Öğretmen -->
+<AuthorizeView Roles="Öğretmen">
+    <div class="nav-section">
+        <div class="nav-title">📘 Öğretmen</div>
+        <NavLink class="nav-link" href="/teacher/courses"><span class="left-accent"></span><i class="bi bi-book-fill"></i><span class="nav-label">Derslerim</span></NavLink>
+        <NavLink class="nav-link" href="/teacher/schedule"><span class="left-accent"></span><i class="bi bi-calendar-week"></i><span class="nav-label">Ders Programı</span></NavLink>
+        <NavLink class="nav-link" href="/teacher/not-giris"><span class="left-accent"></span><i class="bi bi-pencil-square"></i><span class="nav-label">Not Giriş</span></NavLink>
+        <NavLink class="nav-link" href="/teacher/staj-inceleme"><span class="left-accent"></span><i class="bi bi-clipboard-data"></i><span class="nav-label">Staj İnceleme</span></NavLink>
+    </div>
+</AuthorizeView>
+
+<!-- Öğrenci -->
+<AuthorizeView Roles="Öğrenci">
+    <div class="nav-section">
+        <div class="nav-title">🎓 Öğrenci</div>
+        <NavLink class="nav-link" href="/student/courses"><span class="left-accent"></span><i class="bi bi-book-half"></i><span class="nav-label">Kayıtlı Dersler</span></NavLink>
+        <NavLink class="nav-link" href="/student/selected-courses"><span class="left-accent"></span><i class="bi bi-calendar-week"></i><span class="nav-label">Ders Programım</span></NavLink>
+        <NavLink class="nav-link" href="/student/alinan-dersler"><span class="left-accent"></span><i class="bi bi-journal-check"></i><span class="nav-label">Alınan Dersler</span></NavLink>
+        <NavLink class="nav-link" href="/student/transkript"><span class="left-accent"></span><i class="bi bi-file-earmark-text"></i><span class="nav-label">Transkript</span></NavLink>
+        <NavLink class="nav-link" href="/student/staj-belge"><span class="left-accent"></span><i class="bi bi-clipboard-text"></i><span class="nav-label">Staj Belgelerim</span></NavLink>
+    </div>
+</AuthorizeView>
+
+<!-- Hesap / Giriş -->
+<AuthorizeView>
+    <Authorizing>
+        <div class="nav-section"><div class="nav-title">Yükleniyor…</div></div>
+    </Authorizing>
+
+    <Authorized Context="mainContext">
+        <div class="nav-section">
+            <div class="nav-title">👤 Hesap</div>
+            <NavLink class="nav-link" href="/account/manage">
+                <span class="left-accent"></span><i class="bi bi-person-fill"></i>
+                <span class="nav-label">@mainContext.User.Identity?.Name</span>
+            </NavLink>
+
+            <form action="Account/Logout" method="post" class="logout-form">
+                <AntiforgeryToken />
+                <input type="hidden" name="ReturnUrl" value="@CurrentUrl" />
+                <button type="submit" class="nav-link as-button">
+                    <span class="left-accent"></span><i class="bi bi-box-arrow-left"></i>
+                    <span class="nav-label">Logout</span>
+                </button>
+            </form>
+        </div>
+    </Authorized>
+
+    <NotAuthorized>
+        <div class="nav-section">
+            <div class="nav-title">Giriş</div>
+            <NavLink class="nav-link" href="/account/register"><span class="left-accent"></span><i class="bi bi-person-plus-fill"></i><span class="nav-label">Kayıt Ol</span></NavLink>
+            <NavLink class="nav-link" href="/account/login"><span class="left-accent"></span><i class="bi bi-box-arrow-in-right"></i><span class="nav-label">Giriş Yap</span></NavLink>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>

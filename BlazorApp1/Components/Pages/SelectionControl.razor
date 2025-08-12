@@ -1,0 +1,47 @@
+﻿@page "/admin/selection-control"
+@rendermode InteractiveServer
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject NavigationManager NavigationManager
+
+
+@inject ICourseSelectionService CourseSelectionService
+
+<h3>⚙️ Ders Seçim Kontrol Paneli</h3>
+
+@if (isOpen is null)
+{
+    <p><em>Yükleniyor...</em></p>
+}
+else
+{
+    <div class="alert @(isOpen.Value ? "alert-success" : "alert-warning")">
+        Ders seçimi şu anda: <strong>@(isOpen.Value ? "AÇIK 🟢" : "KAPALI 🔴")</strong>
+    </div>
+
+    <button class="btn @(isOpen.Value ? "btn-danger" : "btn-success")" @onclick="ToggleSelection">
+        @(isOpen.Value ? "📴 Kapat" : "📢 Aç")
+    </button>
+}
+
+@code {
+    private bool? isOpen = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isOpen = await CourseSelectionService.IsCourseSelectionOpenAsync();
+    }
+
+    private async Task ToggleSelection()
+    {
+        await CourseSelectionService.ToggleCourseSelectionAsync();
+
+        // Güncel değeri yeniden al, çünkü toggle'dan sonra değişmiş olacak
+        isOpen = await CourseSelectionService.IsCourseSelectionOpenAsync();
+
+        StateHasChanged(); // UI yeniden çizilsin
+        NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
+
+    }
+}

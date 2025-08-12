@@ -1,0 +1,40 @@
+﻿@page "/bolumler"
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@inject IDepartmentService DepartmentService
+
+<h3>📘 Bölüm Listesi</h3>
+
+@if (departments == null)
+{
+    <p><em>Yükleniyor...</em></p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Bölüm</th>
+                <th>Fakülte</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var dept in departments)
+            {
+                <tr>
+                    <td>@dept.Name</td>
+                    <td>@dept.Faculty?.Name</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<Department>? departments;
+
+    protected override async Task OnInitializedAsync()
+    {
+        departments = await DepartmentService.GetAllDepartmentsAsync();
+    }
+}

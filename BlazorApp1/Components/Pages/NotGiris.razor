@@ -1,0 +1,485 @@
+﻿@page "/teacher/not-giris"
+@using BlazorApp1.Models
+@using BlazorApp1.Data
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.JSInterop
+@rendermode InteractiveServer
+
+@inject ITeacherGradingService GradingService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IStudentGradeService StudentGrade
+@inject IJSRuntime JS
+
+<div class="page-bg">
+    <div class="container-fluid py-3">
+
+        <!-- Header -->
+        <div class="card-soft p-3 mb-3 header-wrap">
+            <div class="d-flex align-items-center gap-3">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-pencil-square fs-5"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h3 class="mb-1">Not Giriş Paneli</h3>
+                    <div class="d-flex flex-wrap gap-2">
+                        <span class="badge-title">Ders seçin ve notları girin</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Bilgi / Hata *@
+        @if (!string.IsNullOrEmpty(SuccessMessage))
+        {
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                ✅ @((MarkupString)SuccessMessage)
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                ❌ @((MarkupString)ErrorMessage)
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+
+        @if (TeacherCourses == null)
+        {
+            <div class="text-muted">Dersler yükleniyor...</div>
+        }
+        else
+        {
+            <!-- Ders Seçimi -->
+            <div class="card-soft p-3 mb-3">
+                <label for="courseSelect" class="form-label fw-semibold">📘 Ders Seçimi</label>
+                <div class="input-group fancy-field">
+                    <span class="input-group-text"><i class="bi bi-book"></i></span>
+                    <select id="courseSelect" class="form-select" @onchange="HandleCourseChange">
+                        <option value="0">-- Ders Seçiniz --</option>
+                        @foreach (var course in TeacherCourses)
+                        {
+                            <option value="@course.Id">@course.CourseName</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            @if (SelectedCourseId > 0)
+            {
+                <!-- Yeni Sınav Türü Ekle -->
+                <div class="card-soft mb-3">
+                    <div class="p-3 pb-2 fw-semibold d-flex align-items-center gap-2">
+                        <i class="bi bi-plus-circle"></i><span>Yeni Sınav Türü Ekle</span>
+                    </div>
+                    <div class="px-3 pb-3 row g-3 align-items-center">
+                        <div class="col-md-5">
+                            <div class="input-group fancy-field">
+                                <span class="input-group-text"><i class="bi bi-collection"></i></span>
+                                <select class="form-select" @bind="SelectedGradeTypeId">
+                                    <option value="0">-- Sınav Türü Seçin --</option>
+                                    @foreach (var gt in GradeTypes)
+                                    {
+                                        <option value="@gt.Id">@gt.GradeName</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="input-group fancy-field">
+                                <span class="input-group-text">%</span>
+                                <input type="number" class="form-control"
+                                       @bind="NewWeight" @bind:event="oninput"
+                                       placeholder="Ağırlık" min="0" max="100" step="1" />
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="button" class="btn btn-outline-success hover-lift w-100"
+                                    @onclick="AddGradeType">
+                                <i class="bi bi-plus-circle me-1"></i> Ekle
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dersi Sonlandır -->
+                <div class="card-soft p-3 mb-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="pill pill-term">Toplam Ağırlık: @CourseGradeTypes.Sum(x => x.Weight)%</span>
+                        <button class="btn btn-danger ms-auto hover-lift"
+                                disabled="@(!CanFinalizeCourse())"
+                                @onclick="FinalizeCourseGrades">
+                            🛑 Dersi Sonlandır ve Harf Notlarını Hesapla
+                        </button>
+                    </div>
+
+                    @if (!IsWeightsExactly100())
+                    {
+                        <div class="text-danger mt-2 fw-semibold">
+                            ⚠️ Sınav ağırlıkları toplamı %100 olmalıdır.
+                        </div>
+                    }
+                    else if (!IsMinThresholdsMet(out var warnMsg))
+                    {
+                        <div class="text-danger mt-2 fw-semibold">
+                            @((MarkupString)warnMsg)
+                        </div>
+                    }
+                </div>
+
+                <!-- Sınav Türleri ve Ağırlıkları -->
+                <div class="card-soft mb-3">
+                    <div class="p-3 pb-2 fw-semibold d-flex align-items-center gap-2">
+                        <i class="bi bi-sliders"></i><span>📊 Sınav Türleri ve Ağırlıkları</span>
+                    </div>
+                    <div class="px-3 pb-3">
+                        <div class="scroll-container">
+                            <table class="table table-hover table-sm table-sticky table-colorful table-nowrap mb-0 text-center">
+                                <thead>
+                                    <tr>
+                                        <th>Sınav Türü</th>
+                                        <th style="width: 140px;">Ağırlık (%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var gt in CourseGradeTypes)
+                                    {
+                                        <tr>
+                                            <td>@gt.GradeType.GradeName</td>
+                                            <td>
+                                                <input type="number"
+                                                       class="form-control form-control-sm text-center"
+                                                       min="0" max="100"
+                                                       @bind="gt.Weight"
+                                                       @bind:event="oninput" />
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <button class="btn btn-primary mt-3 hover-lift" @onclick="SaveUpdatedWeights">💾 Ağırlıkları Kaydet</button>
+                    </div>
+                </div>
+
+                <!-- Öğrenci Not Girişi -->
+                <div class="card-soft">
+                    <div class="p-3 pb-2 fw-semibold d-flex align-items-center gap-2">
+                        <i class="bi bi-people"></i><span>🎯 Öğrenci Not Girişi</span>
+                    </div>
+                    <div class="px-3 pb-3">
+                        <div class="scroll-container">
+                            <table class="table table-striped table-sm align-middle table-sticky table-nowrap text-center mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="text-start">👤 Öğrenci</th>
+                                        @foreach (var gtype in CourseGradeTypes)
+                                        {
+                                            <th>@gtype.GradeType.GradeName</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var student in Students)
+                                    {
+                                        <tr>
+                                            <td class="text-start">@student.Isim</td>
+                                            @foreach (var gtype in CourseGradeTypes)
+                                            {
+                                                <td>
+                                                    <input type="number" class="form-control form-control-sm text-center"
+                                                           min="0" max="100"
+                                                           @bind="studentGrades[(student.Id, gtype.Id)]" />
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <button type="button" class="btn btn-success mt-3 hover-lift" @onclick="SaveAllGrades">
+                            💾 Notları Kaydet
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private string ErrorMessage { get; set; } = string.Empty;
+    private string SuccessMessage { get; set; } = string.Empty;
+
+    private List<Course> TeacherCourses;
+    private List<ApplicationUser> Students = new();
+    private List<CourseGradeType> CourseGradeTypes = new();
+    private List<GradeType> GradeTypes = new();
+
+    private int SelectedCourseId = 0;
+    private int SelectedGradeTypeId = 0;
+    private double NewWeight = 0;
+
+    // (StudentId, CourseGradeTypeId) => Not
+    private Dictionary<(int, int), double> studentGrades = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user == null) return;
+
+        TeacherCourses = await GradingService.GetCoursesByTeacherIdAsync(user.Id);
+        GradeTypes = await GradingService.GetAllGradeTypesAsync();
+    }
+
+    private async Task HandleCourseChange(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out int selectedId))
+        {
+            SelectedCourseId = selectedId;
+            await OnCourseChanged();
+        }
+    }
+
+    private async Task OnCourseChanged()
+    {
+        if (SelectedCourseId <= 0) return;
+
+        Students = await GradingService.GetStudentsByCourseIdAsync(SelectedCourseId);
+        CourseGradeTypes = await GradingService.GetCourseGradeTypesAsync(SelectedCourseId);
+
+        var existingGrades = await StudentGrade.GetStudentGradesByCourseIdAsync(SelectedCourseId);
+        studentGrades.Clear();
+
+        foreach (var student in Students)
+        {
+            foreach (var cgt in CourseGradeTypes)
+            {
+                var grade = existingGrades.FirstOrDefault(g => g.UserId == student.Id && g.CourseGradeTypeId == cgt.Id);
+                studentGrades[(student.Id, cgt.Id)] = grade?.Score ?? 0;
+            }
+        }
+    }
+
+    private async Task AddGradeType()
+    {
+        // Basit doğrulamalar
+        if (SelectedCourseId == 0 || SelectedGradeTypeId == 0)
+        {
+            await ShowPopupAsync("Lütfen ders ve sınav türü seçiniz.", isError: true);
+            return;
+        }
+        if (NewWeight <= 0 || NewWeight > 100)
+        {
+            await ShowPopupAsync("Ağırlık 0-100 aralığında olmalıdır.", isError: true);
+            return;
+        }
+
+        // Toplam 100'ü aşmasın
+        var newTotal = CourseGradeTypes.Sum(x => x.Weight) + NewWeight;
+        if (newTotal > 100)
+        {
+            await ShowPopupAsync($"Toplam ağırlık {newTotal}% oluyor. %100'ü aşamaz.", isError: true);
+            return;
+        }
+
+        var added = await GradingService.AddCourseGradeTypeAsync(SelectedCourseId, SelectedGradeTypeId, NewWeight);
+        if (added)
+        {
+            CourseGradeTypes = await GradingService.GetCourseGradeTypesAsync(SelectedCourseId);
+
+            // Yeni sütun için öğrenci not sözlüğüne 0 olarak ekle
+            var newCgtId = CourseGradeTypes.Last().Id;
+            foreach (var student in Students)
+                studentGrades.TryAdd((student.Id, newCgtId), 0);
+
+            await ShowPopupAsync("Sınav türü eklendi.");
+            SuccessMessage = "✅ Sınav türü eklendi.";
+            ErrorMessage = string.Empty;
+        }
+    }
+
+    private async Task SaveAllGrades()
+    {
+        // 0-100 doğrulaması
+        foreach (var kv in studentGrades)
+        {
+            var score = kv.Value;
+            if (score < 0 || score > 100)
+            {
+                await ShowPopupAsync("Tüm notlar 0-100 aralığında olmalıdır.", isError: true);
+                ErrorMessage = "❌ Tüm notlar 0-100 aralığında olmalıdır.";
+                SuccessMessage = string.Empty;
+                return;
+            }
+        }
+
+        try
+        {
+            foreach (var entry in studentGrades)
+            {
+                var studentId = entry.Key.Item1;
+                var cgtId = entry.Key.Item2;
+                var score = entry.Value;
+
+                await GradingService.SaveStudentGradeAsync(studentId, cgtId, score);
+            }
+
+            SuccessMessage = "✅ Tüm notlar başarıyla kaydedildi!";
+            ErrorMessage = string.Empty;
+            await ShowPopupAsync("Tüm notlar başarıyla kaydedildi.");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"❌ Not kaydederken hata oluştu: {ex.Message}";
+            SuccessMessage = string.Empty;
+            await ShowPopupAsync("Not kaydederken hata oluştu.", isError: true);
+        }
+    }
+
+    private async Task SaveUpdatedWeights()
+    {
+        // 🔒 Bu buton için şartlar: en az 1 Vize & 1 Final, Vize ≥ %20, Final ≥ %40, Toplam = %100
+        var (ok, message) = ValidateWeightsForSave();
+        if (!ok)
+        {
+            ErrorMessage = message;
+            SuccessMessage = string.Empty;
+            await ShowPopupAsync(StripHtml(message), isError: true);
+            return;
+        }
+
+        foreach (var item in CourseGradeTypes)
+        {
+            // Yerel güvenlik: 0-100 aralığı
+            if (item.Weight < 0 || item.Weight > 100)
+            {
+                ErrorMessage = "Her bir ağırlık 0-100 aralığında olmalıdır.";
+                SuccessMessage = string.Empty;
+                await ShowPopupAsync("Her bir ağırlık 0-100 aralığında olmalıdır.", isError: true);
+                return;
+            }
+        }
+
+        // Hepsi geçti, kaydet
+        foreach (var item in CourseGradeTypes)
+            await GradingService.UpdateCourseGradeWeightAsync(item.Id, item.Weight);
+
+        SuccessMessage = "✅ Ağırlıklar güncellendi!";
+        ErrorMessage = string.Empty;
+        await ShowPopupAsync("Ağırlıklar güncellendi.");
+    }
+
+    private async Task FinalizeCourseGrades()
+    {
+        // Finalize için de aynı kuralları uygulayalım (ek güvenlik)
+        var (ok, message) = ValidateWeightsForSave();
+        if (!ok)
+        {
+            ErrorMessage = message;
+            SuccessMessage = string.Empty;
+            await ShowPopupAsync(StripHtml(message), isError: true);
+            return;
+        }
+
+        try
+        {
+            await GradingService.CalculateAndUpdateFinalGradesAsync(SelectedCourseId);
+            SuccessMessage = "✅ Dönem başarı notları ve harf notları başarıyla hesaplandı.";
+            ErrorMessage = string.Empty;
+            await ShowPopupAsync("Ders sonlandırıldı ve harf notları hesaplandı.");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"❌ Dersi sonlandırırken hata oluştu: {ex.Message}";
+            SuccessMessage = string.Empty;
+            await ShowPopupAsync("Dersi sonlandırırken hata oluştu.", isError: true);
+        }
+    }
+
+    // ======= Yardımcılar =======
+
+    private static bool IsVize(string name)
+        => !string.IsNullOrWhiteSpace(name) && name.Contains("vize", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsFinal(string name)
+        => !string.IsNullOrWhiteSpace(name) && name.Contains("final", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsWeightsExactly100()
+        => Math.Round(CourseGradeTypes.Sum(x => x.Weight), 2) == 100;
+
+    private bool IsMinThresholdsMet(out string messageHtml)
+    {
+        var vizeCount = CourseGradeTypes.Count(x => IsVize(x.GradeType?.GradeName ?? ""));
+        var finalCount = CourseGradeTypes.Count(x => IsFinal(x.GradeType?.GradeName ?? ""));
+        var vizeWeight = CourseGradeTypes.Where(x => IsVize(x.GradeType?.GradeName ?? "")).Sum(x => x.Weight);
+        var finalWeight = CourseGradeTypes.Where(x => IsFinal(x.GradeType?.GradeName ?? "")).Sum(x => x.Weight);
+        var total = CourseGradeTypes.Sum(x => x.Weight);
+
+        // Dinamik durum mesajı (kullanıcı istediği formatta)
+        var mevcutVize = vizeCount > 0 ? "Evet" : "Hayır";
+        var mevcutFinal = finalCount > 0 ? "Evet" : "Hayır";
+
+        messageHtml =
+            $@"⚠️ Aşağıdaki şartlar sağlanmalı:
+            <ul class='mb-0'>
+              <li>En az 1 Vize <em>(mevcut: {mevcutVize})</em></li>
+              <li>En az 1 Final <em>(mevcut: {mevcutFinal})</em></li>
+              <li>Vize ağırlığı ≥ %20 <em>(mevcut: {vizeWeight}%)</em></li>
+              <li>Final ağırlığı ≥ %40 <em>(mevcut: {finalWeight}%)</em></li>
+              <li>Toplam ağırlık = %100 <em>(mevcut: {total}%)</em></li>
+            </ul>";
+
+        var ok = vizeCount >= 1 && finalCount >= 1 && vizeWeight >= 20 && finalWeight >= 40 && IsWeightsExactly100();
+        return ok;
+    }
+
+    // “Ağırlıkları Kaydet” için kullanılacak nihai doğrulama
+    private (bool ok, string messageHtml) ValidateWeightsForSave()
+    {
+        if (CourseGradeTypes is null || CourseGradeTypes.Count == 0)
+            return (false, "⚠️ En az bir sınav türü eklemelisiniz.");
+
+        // Toplam 100'ü aşmasın/eşit olsun
+        var total = CourseGradeTypes.Sum(x => x.Weight);
+        if (total > 100)
+            return (false, $"⚠️ Toplam ağırlık {total}%. %100'ü aşamaz.");
+        if (!IsWeightsExactly100())
+        {
+            // Butonda “=100 olmalı” şartı var
+            // (tam eşitlik değilse kullanıcıya detaylı rehber mesajı göster)
+            IsMinThresholdsMet(out var details);
+            return (false, details);
+        }
+
+        if (!IsMinThresholdsMet(out var msg))
+            return (false, msg);
+
+        return (true, string.Empty);
+    }
+
+    private bool CanFinalizeCourse()
+    {
+        // Button disable mantığı: toplam = 100 ve eşik şartları sağlanmalı
+        return IsWeightsExactly100() && IsMinThresholdsMet(out _);
+    }
+
+    private async Task ShowPopupAsync(string message, bool isError = false)
+    {
+        // Basit popup: JS alert
+        await JS.InvokeVoidAsync("alert", (isError ? "❌ " : "✅ ") + message);
+    }
+
+    private static string StripHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return html;
+        // popup için basit temizleme
+        return System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", string.Empty)
+                                                  .Replace("&nbsp;", " ")
+                                                  .Trim();
+    }
+}

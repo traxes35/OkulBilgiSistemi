@@ -1,0 +1,43 @@
+﻿@using BlazorApp1.Components.Account.Shared
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.WebUtilities
+@inject NavigationManager Navigation
+
+<Router AppAssembly="@typeof(Program).Assembly">
+    <Found Context="routeData">
+        @if (IsLoginPage(routeData))
+        {
+            <RouteView RouteData="routeData" DefaultLayout="@typeof(Layout.EmptyLayout)" />
+        }
+        else
+        {
+            var layoutType = UseEmptyLayout() ? typeof(Layout.EmptyLayout) : typeof(Layout.MainLayout);
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="@layoutType">
+                <NotAuthorized>
+                    <RedirectToLogin />
+                </NotAuthorized>
+            </AuthorizeRouteView>
+        }
+
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+
+    <NotFound>
+        <LayoutView Layout="@(UseEmptyLayout() ? typeof(Layout.EmptyLayout) : typeof(Layout.MainLayout))">
+            <p>Sayfa bulunamadı. Lütfen <a href="/">giriş sayfasına</a> dönün.</p>
+        </LayoutView>
+    </NotFound>
+</Router>
+
+@code {
+    private bool UseEmptyLayout()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var q = QueryHelpers.ParseQuery(uri.Query);
+        return q.TryGetValue("layout", out var v)
+            && string.Equals(v.ToString(), "empty", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsLoginPage(RouteData routeData)
+        => routeData.PageType?.FullName == "BlazorApp1.Components.Account.Pages.Login";
+}

@@ -1,0 +1,328 @@
+﻿@page "/teacher/schedule"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Öğretmen")]
+
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject ITimeSlotService TimeSlotService
+@inject ITeacherCourseTimeService TeacherCourseTimeService
+@inject ICourseService CourseService
+@inject ITermService TermService
+@inject AuthenticationStateProvider AuthProvider
+
+<div class="page-bg">
+    <div class="container-fluid py-3">
+
+        <!-- Header -->
+        <div class="card-soft p-3 mb-3 header-wrap">
+            <div class="d-flex align-items-center gap-3">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-clock fs-5"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h3 class="mb-1 page-title">Öğretmen Ders Programı (Görüntüleme)</h3>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge-title">
+                            Gün/Saat blokları:
+                            <strong class="ms-1">@TimeRows.Count</strong>
+                        </span>
+                        <span class="badge-title">
+                            Atanmış ders slotu:
+                            <strong class="ms-1">@SlotEntries.Count</strong>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (!loaded)
+        {
+            <div class="card-soft p-3 text-muted">Yükleniyor...</div>
+        }
+        else if (activeTerm is null)
+        {
+            <div class="alert alert-warning">Aktif dönem bulunamadı. Lütfen yönetici ile iletişime geçin.</div>
+        }
+        else
+        {
+            <!-- Legend -->
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                <span class="legend-chip bg-available">Boş</span>
+                <span class="legend-chip bg-assigned">Ders Atanmış</span>
+            </div>
+
+            <!-- Grid -->
+            <div class="card-soft p-2">
+                <div class="schedule-scroller">
+                    <div class="time-grid">
+                        <div class="header-cell"></div>
+                        @foreach (var day in Days)
+                        {
+                            <div class="header-cell">@day</div>
+                        }
+
+                        @for (int row = 0; row < TimeRows.Count; row++)
+                        {
+                            <div class="row-label">@TimeRows[row].TimeRangeLabel</div>
+
+                            @for (int col = 0; col < Days.Length; col++)
+                            {
+                                var slot = TimeRows[row].SlotsByDay[Days[col]];
+
+                                if (slot is null)
+                                {
+                                    <div class="time-cell disabled"></div>
+                                }
+                                else
+                                {
+                                    var hasEntries = SlotEntries.TryGetValue(slot.Id, out var entries) && entries!.Any();
+                                    var classes = $"time-cell {(hasEntries ? "assigned" : "")}";
+
+                                    <div class="@classes"
+                                         title="@($"{slot.Day} {slot.StartTime:hh\\:mm}-{slot.EndTime:hh\\:mm}")">
+                                        @if (hasEntries)
+                                        {
+                                            <div class="stack">
+                                                @foreach (var e in entries!)
+                                                {
+                                                    <span class="course-chip" aria-hidden="true">
+                                                        @e.courseName @if(!string.IsNullOrWhiteSpace(e.classroom)) {
+                                                        <text>(@e.classroom)</text>
+                                                    } else
+                                                    {
+                                                        <text>(Sınıf Yok)</text>
+                                                    }
+                                                </span>
+                                            }
+                                        </div>
+                                    }
+                                                else
+                                    {
+                                        <span class="cell-text text-muted">—</span>
+                                    }
+                                </div>
+                            }
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+                }
+    </div>
+</div>
+
+@code {
+    private readonly string[] Days = new[] { "Pazartesi", "Sali", "Çarsamba", "Persembe", "Cuma" };
+    private bool loaded;
+    private Term? activeTerm;
+
+    private List<TimeSlot> AllSlots = new();
+    private List<TimeRowGroup> TimeRows = new();
+
+    // slotId -> (courseName, classroom) list
+    private Dictionary<int, List<(string courseName, string classroom)>> SlotEntries =
+        new Dictionary<int, List<(string, string)>>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Kullanıcı Id
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        var user = auth.User;
+        var claim = user.FindFirst("sub")
+             ?? user.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier");
+
+        if (claim == null || !int.TryParse(claim.Value, out var userId))
+        {
+            loaded = true; // gösterilecek bir şey yok
+            return;
+        }
+
+        // 1) Aktif dönem
+        activeTerm = await TermService.GetActiveTermAsync();
+
+        // 2) Zaman blokları
+        //   - Eğer TimeSlot'lar dönemle ilişkiliyse: TimeSlotService.GetByTermAsync(activeTerm.Id) gibi bir metoda yönelt.
+        AllSlots = await TimeSlotService.GetAllAsync();
+
+        // 3) Aktif dönemin dersleri
+        var courses = activeTerm is null
+            ? new List<Course>()
+            : await CourseService.GetAllCoursesByTermAsync(activeTerm.Id);
+
+        // 4) Öğretmene atanmış ders-slotları (AKTİF DÖNEME FİLTRE!)
+        var assignedAll = await TeacherCourseTimeService.GetByTeacherIdAsync(userId);
+        var assignedForActive = activeTerm is null
+            ? new List<TeacherCourseTime>()
+            : assignedAll.Where(a => courses.Any(c => c.Id == a.CourseId)).ToList();
+
+        // 5) slot bazında ders adı/sınıf listesi (sadece aktif dönem)
+        SlotEntries = assignedForActive
+          .Where(x => x.TimeSlotId != 0)
+          .GroupBy(x => x.TimeSlotId)
+          .ToDictionary(
+            g => g.Key,
+            g => g.Select(a =>
+                 (
+                   courses.FirstOrDefault(c => c.Id == a.CourseId)?.CourseName ?? "Ders",
+                   a.ClassroomId.ToString() ?? "" // null güvenliği
+                 )
+               ).ToList()
+          );
+
+        BuildTimeRows();
+        loaded = true;
+    }
+
+    private void BuildTimeRows()
+    {
+        TimeRows.Clear();
+
+        var grouped = AllSlots
+            .GroupBy(s => new { s.StartTime, s.EndTime })
+            .OrderBy(g => g.Key.StartTime)
+            .ToList();
+
+        foreach (var group in grouped)
+        {
+            var row = new TimeRowGroup { TimeRangeLabel = $"{group.Key.StartTime:hh\\:mm} - {group.Key.EndTime:hh\\:mm}" };
+            foreach (var slot in group)
+            {
+                if (Days.Contains(slot.Day ?? "")) row.SlotsByDay[slot.Day!] = slot;
+            }
+            TimeRows.Add(row);
+        }
+    }
+
+    private class TimeRowGroup
+    {
+        public string TimeRangeLabel { get; set; } = "";
+        public Dictionary<string, TimeSlot?> SlotsByDay { get; set; } = new()
+        {
+            { "Pazartesi", null }, { "Sali", null }, { "Çarsamba", null }, { "Persembe", null }, { "Cuma", null }
+        };
+    }
+}
+
+
+<style>
+    /* scroller */
+    .schedule-scroller {
+        overflow: auto;
+        padding: 6px;
+    }
+
+    /* grid */
+    .time-grid {
+        display: grid;
+        grid-template-columns: 120px repeat(5, minmax(160px, 1fr));
+        gap: 6px;
+        min-width: 860px; /* dar ekranda kayabilsin */
+    }
+
+    /* başlık/etiket */
+    .header-cell {
+        background: var(--brand-2);
+        color: #fff;
+        font-weight: 600;
+        padding: 10px;
+        text-align: center;
+        border-radius: 8px;
+    }
+
+    .row-label {
+        background: #6c757d;
+        color: #fff;
+        font-weight: 600;
+        padding: 10px;
+        text-align: center;
+        border-radius: 8px;
+        white-space: nowrap;
+    }
+
+    /* hücreler (readonly) */
+    .time-cell {
+        background: #e9ecef;
+        color: #2c3e50;
+        padding: 8px;
+        border-radius: 8px;
+        min-height: 58px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+
+        .time-cell.disabled {
+            background: #ced4da;
+            color: #6c757d;
+        }
+
+        .time-cell.assigned {
+            outline: 2px dashed rgba(255,193,7,.8);
+            outline-offset: -3px;
+        }
+
+    /* içerik */
+    .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 100%;
+        align-items: center;
+    }
+
+    .course-chip {
+        display: inline-block;
+        max-width: 98%;
+        font-size: .85rem;
+        font-weight: 600;
+        line-height: 1.25;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(255,193,7,.15);
+        border: 1px solid rgba(255,193,7,.45);
+        color: #7a5504;
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    .cell-text {
+        font-weight: 700;
+    }
+
+    /* legend */
+    .legend-chip {
+        display: inline-block;
+        padding: .35rem .6rem;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: .8rem;
+        border: 1px solid rgba(0,0,0,.06);
+    }
+
+    .bg-available {
+        background: #f1f5f9;
+        color: #0f172a;
+    }
+
+    .bg-assigned {
+        background: rgba(255,193,7,.18);
+        color: #7c4a03;
+        border-color: rgba(255,138,0,.35);
+    }
+
+    /* responsive */
+    @@media (max-width: 576px) {
+        .time-grid
+
+    {
+        grid-template-columns: 100px repeat(5, minmax(140px, 1fr));
+        min-width: 780px;
+    }
+
+    }
+</style>
+

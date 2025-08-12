@@ -1,0 +1,212 @@
+﻿@page "/teacher/courses"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Öğretmen")]
+
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject ITeacherCourseService TeacherCourseService
+@inject ITermService TermService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ICourseSelectionService CourseSelectionService
+
+<HeadContent>
+    <!-- Sayfa-özel minik css -->
+    <link rel="stylesheet" href="css/teachercurses.css" />
+</HeadContent>
+<div class="page-bg">
+    <div class="container-fluid py-3">
+
+        <!-- Header -->
+        <div class="card-soft p-3 mb-3 header-wrap">
+            <div class="d-flex align-items-center gap-3">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-journal-bookmark fs-5"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h3 class="mb-1">📘 Öğretmen: Derslerim</h3>
+
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge-title">
+                            Aktif Dönem:
+                            <strong class="ms-1">@((activeTerm is null) ? "-" : $"{activeTerm.Year} / {(activeTerm.Semester == 1 ? "Güz" : "Bahar")}")</strong>
+                        </span>
+                        <span class="badge-title">
+                            Toplam: <strong class="ms-1">@((myCourses?.Count ?? 0))</strong>
+                        </span>
+                        <span class="badge-title">
+                            Onaylı Sorumluluk: <strong class="ms-1">@ApprovedCount</strong>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (!isSelectionOpen)
+        {
+            <div class="alert alert-warning">⚠️ Ders seçim dönemi şu anda kapalıdır. "Derslerim" sadece seçim dönemi boyunca görüntülenebilir.</div>
+        }
+        else
+        {
+            @if (loading)
+            {
+                <div class="text-muted">Dersler yükleniyor...</div>
+            }
+            else if (myCourses is null || !myCourses.Any())
+            {
+                <div class="card-soft p-3">Henüz size atanmış bir ders bulunmamaktadır.</div>
+            }
+            else
+            {
+                <div class="card-soft">
+                    <div class="p-3 pb-2 fw-semibold d-flex align-items-center gap-2">
+                        <i class="bi bi-table"></i>
+                        <span>Ders Listesi</span>
+                    </div>
+
+                    <div class="px-3 pb-3">
+                        <div class="scroll-container">
+                            <table class="table table-hover table-sm table-sticky table-colorful table-nowrap mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Kod</th>
+                                        <th>Ad</th>
+                                        <th>Kredi</th>
+                                        <th>Zorunlu mu?</th>
+                                        <th>Kota</th>
+                                        <th>Sınıf</th>
+                                        <th>Sorumluluk</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var tc in myCourses!)
+                                    {
+                                        var course = tc.Course;
+                                        <tr>
+                                            <td><span class="pill pill-code">@course.CourseCode</span></td>
+                                            <td>@course.CourseName</td>
+                                            <td><span class="pill pill-credit">@course.Credit</span></td>
+                                            <td>
+                                                @if (course.IsMandatory)
+                                                {
+                                                    <span class="pill pill-mandatory">Zorunlu</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="pill pill-optional">Seçmeli</span>
+                                                }
+                                            </td>
+                                            <td>@course.Quota</td>
+                                            <td><span class="pill pill-class">@course.ClassLevel</span></td>
+                                            <td>
+                                                @if (course.IsMandatory)
+                                                {
+                                                    <button class="btn btn-success btn-sm" disabled>
+                                                        ✔️ Onaylı
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="btn btn-sm @(tc.IsResponsibilityApproved == true ? "btn-success" : "btn-outline-secondary")"
+                                                            disabled="@busy"
+                                                            title="Ders sorumluluğunu @(tc.IsResponsibilityApproved == true ? "kaldır" : "onayla")"
+                                                            @onclick="() => ToggleResponsibility(tc)">
+                                                        @(tc.IsResponsibilityApproved == true ? "✔️ Onaylı" : "❌ Bekliyor")
+                                                    </button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private List<TeacherCourse>? myCourses;
+    private Term? activeTerm;
+    private bool isSelectionOpen;
+    private bool loading = true;
+    private bool busy = false;
+
+    private int ApprovedCount =>
+        myCourses?.Count(x => x.Course.IsMandatory || x.IsResponsibilityApproved == true) ?? 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isSelectionOpen = await CourseSelectionService.IsCourseSelectionOpenAsync();
+        activeTerm = await TermService.GetActiveTermAsync();
+
+        if (!isSelectionOpen || activeTerm is null)
+        {
+            loading = false;
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var userIdClaim = user.FindFirst("sub") ??
+                              user.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier");
+
+            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+            {
+                // Aktif döneme göre dersleri çek
+                myCourses = await TeacherCourseService.GetCoursesByTeacherIdAndTermAsync(userId, activeTerm.Id);
+
+                // Zorunlu dersler otomatik onaylı olsun
+                foreach (var tc in myCourses)
+                {
+                    if (tc.Course.IsMandatory && tc.IsResponsibilityApproved != true)
+                    {
+                        tc.IsResponsibilityApproved = true;
+                        await TeacherCourseService.UpdateAsync(tc);
+                    }
+                }
+            }
+        }
+
+        loading = false;
+    }
+
+    private async Task ToggleResponsibility(TeacherCourse tc)
+    {
+        if (busy) return;
+        busy = true;
+        try
+        {
+            tc.IsResponsibilityApproved = !(tc.IsResponsibilityApproved ?? false);
+            await TeacherCourseService.UpdateAsync(tc);
+
+            // Aktif döneme göre tekrar yükle (tüm dersler değil)
+            if (activeTerm is not null)
+            {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var user = authState.User;
+                var userIdClaim = user.FindFirst("sub") ??
+                                  user.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier");
+
+                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+                {
+                    myCourses = await TeacherCourseService.GetCoursesByTeacherIdAndTermAsync(userId, activeTerm.Id);
+                }
+            }
+        }
+        finally
+        {
+            busy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+}
+}

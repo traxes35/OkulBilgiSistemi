@@ -1,0 +1,34 @@
+﻿@page "/ders-islemleri"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+
+<PageTitle>Ders İşlemleri</PageTitle>
+
+<h1>Ders İşlemleri</h1>
+
+<AuthorizeView Roles="Admin">
+    <Authorized>
+        <h3>Admin: Ders Yönetim Paneli</h3>
+        <p>Burada tüm dersleri listeleyebilir, ekleyebilir veya silebilirsiniz.</p>
+        <!-- Admin’e özel ders işlemleri buraya eklenecek -->
+    </Authorized>
+</AuthorizeView>
+
+<AuthorizeView Roles="Öğretmen">
+    <Authorized>
+        <h3>Öğretmen: Derslerim</h3>
+        <p>Burada kendi derslerinizi görebilir ve düzenleyebilirsiniz.</p>
+        <!-- Öğretmen’e özel ders işlemleri buraya eklenecek -->
+    </Authorized>
+</AuthorizeView>
+
+<AuthorizeView Roles="Öğrenci">
+    <Authorized>
+        <h3>Öğrenci: Ders Seçimi</h3>
+        <p>Burada ders seçebilir veya kayıt olabilirsiniz.</p>
+        <!-- Öğrenci’ye özel ders işlemleri buraya eklenecek -->
+    </Authorized>
+</AuthorizeView>
+
+@code {
+}

@@ -1,0 +1,36 @@
+﻿@page "/home"
+@layout MainLayout
+@using BlazorApp1.Components.Layout
+@using Microsoft.AspNetCore.Identity
+@using BlazorApp1.Data
+@using System.Security.Claims
+@inject SignInManager<ApplicationUser> SignInManager
+
+<PageTitle>Ana Sayfa</PageTitle>
+
+<h3>Hoş Geldiniz!</h3>
+
+@if (SignInManager.IsSignedIn(User))
+{
+    <p>Merhaba, @User.Identity?.Name! Bu sizin ana sayfanız.</p>
+    <AuthorizeView Roles="Admin">
+        <p>Admin olarak kullanıcı yönetimini kontrol edebilirsiniz.</p>
+    </AuthorizeView>
+    <AuthorizeView Roles="Öğretmen">
+        <p>Öğretmen olarak derslerinizi yönetebilirsiniz.</p>
+    </AuthorizeView>
+    <AuthorizeView Roles="Öğrenci">
+        <p>Öğrenci olarak ders kayıtlarınızı ve notlarınızı görebilirsiniz.</p>
+    </AuthorizeView>
+}
+else
+{
+    <p>Lütfen giriş yapın veya kayıt olun.</p>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationState { get; set; } = default!;
+
+    private ClaimsPrincipal User => (AuthenticationState.Result?.User)!;
+}

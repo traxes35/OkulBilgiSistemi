@@ -1,0 +1,357 @@
+﻿/* ==========================================================================
+   app-core.css — Proje genelinde paylaşılan temel stiller
+   (Bootstrap 5 ile uyumlu, override etmeden genişletir)
+   ========================================================================== */
+
+/* 1) Değişkenler (tema) */
+:root {
+    --brand-1: #6C5CE7; /* mor */
+    --brand-2: #3DB0FF; /* mavi */
+    --brand-3: #00d2d3; /* turkuaz */
+    --accent-1: #FF8A00; /* turuncu */
+    --danger-1: #ff6b6b; /* kırmızı */
+
+    --bg-soft-1: #f7f9fc;
+    --bg-soft-2: #eef3f8;
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 18px;
+    --shadow-sm: 0 6px 16px rgba(16,24,40,.06);
+    --shadow-md: 0 12px 32px rgba(16,24,40,.08);
+    --shadow-lg: 0 24px 64px rgba(16,24,40,.18);
+}
+
+/* 2) Bazı reset/iyileştirmeler */
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+}
+
+img, svg {
+    max-width: 100%;
+    height: auto;
+}
+
+/* 3) Sayfa arka planı ve kartlar */
+.page-bg {
+    background: linear-gradient(180deg,var(--bg-soft-1) 0%,var(--bg-soft-2) 100%);
+    min-height: 100vh;
+}
+
+.card-soft {
+    border: 0;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    background: #fff;
+}
+
+/* 4) Başlık şeridi ve simge */
+.header-wrap {
+    position: relative;
+}
+
+    .header-wrap::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -6px;
+        height: 4px;
+        background: linear-gradient(90deg,var(--brand-1),var(--brand-2),var(--brand-3));
+        border-radius: 4px;
+        opacity: .25;
+    }
+
+.header-icon {
+    width: 48px;
+    height: 48px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: var(--shadow-sm);
+}
+
+/* 5) Renkli rozet/badge varyantları (başlıklar ve sayaçlar) */
+.badge-title {
+    background: linear-gradient(90deg,rgba(108,92,231,.15),rgba(61,176,255,.15));
+    color: #374151;
+    border: 1px solid rgba(61,176,255,.25);
+    padding: .45rem .75rem;
+    border-radius: 999px;
+}
+
+.count-chip {
+    background: linear-gradient(90deg,rgba(0,210,211,.20),rgba(61,176,255,.20));
+    border: 1px solid rgba(61,176,255,.35);
+    color: #0f172a;
+    border-radius: 999px;
+}
+
+/* 6) Buton geliştirmeleri */
+.btn-gradient-primary {
+    background-image: linear-gradient(90deg,var(--brand-1),var(--brand-2));
+    border: 0;
+    color: #fff;
+}
+
+    .btn-gradient-primary:hover {
+        filter: brightness(1.06);
+    }
+
+.btn-gradient-danger {
+    background-image: linear-gradient(90deg,var(--danger-1),#ff3b3b);
+    border: 0;
+    color: #fff;
+}
+
+.hover-lift {
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+
+    .hover-lift:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 22px rgba(16,24,40,.14);
+    }
+
+/* 7) Form alanı “fancy” görünümü */
+.fancy-field {
+    background: linear-gradient(180deg,#ffffff 0%, #f7fbff 100%);
+    border: 1px solid #e6ecf5;
+    border-radius: 12px;
+}
+
+    .fancy-field .input-group-text {
+        background: transparent;
+        border: 0;
+        font-weight: 600;
+    }
+
+    .fancy-field .form-control,
+    .fancy-field .form-select {
+        border: 0;
+        box-shadow: none;
+        background: transparent;
+    }
+
+/* Büyük switch */
+.big-switch .form-check-input {
+    width: 2.6rem;
+    height: 1.4rem;
+}
+
+/* 8) Tablo görselleştirme (sticky başlık + zebra + hover) */
+.table-sticky thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: linear-gradient(180deg,#ffffff 0%, #f2f6ff 100%);
+    border-bottom: 1px solid rgba(0,0,0,.06);
+}
+
+.table-colorful tbody tr:nth-child(even) {
+    background: rgba(61,176,255,.05);
+}
+
+.table-colorful tbody tr:hover {
+    background: rgba(108,92,231,.10);
+}
+
+.table-nowrap th, .table-nowrap td {
+    white-space: nowrap;
+}
+
+/* Kaydırmalı kapsayıcı (uzun listeler için) */
+.scroll-container {
+    max-height: 520px;
+    overflow: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid #eef2f7;
+    background: #fff;
+}
+
+/* 9) Etiket/Pill seti (tablolarda) */
+.pill {
+    display: inline-block;
+    padding: .25rem .6rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: .84rem;
+    border: 1px solid rgba(0,0,0,.08);
+    background: #fff;
+}
+
+.pill-code {
+    border-color: rgba(108,92,231,.35);
+    color: #4c3db8;
+    background: rgba(108,92,231,.10);
+}
+
+.pill-credit {
+    border-color: rgba(0,210,211,.35);
+    color: #0b7a7b;
+    background: rgba(0,210,211,.10);
+}
+
+.pill-mandatory {
+    border-color: rgba(25,135,84,.35);
+    color: #0f5132;
+    background: rgba(25,135,84,.12);
+}
+
+.pill-optional {
+    border-color: rgba(108,117,125,.35);
+    color: #3a3f44;
+    background: rgba(108,117,125,.12);
+}
+
+.pill-class {
+    border-color: rgba(255,138,0,.35);
+    color: #7c4a03;
+    background: rgba(255,193,7,.18);
+}
+
+.pill-term {
+    border-color: rgba(61,176,255,.35);
+    color: #0b3f66;
+    background: rgba(61,176,255,.14);
+}
+
+/* 10) Genel modal/overlay & sheet (yıl seçici gibi bileşenlerde yeniden kullanılabilir) */
+.overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(10,15,30,.45);
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease;
+    z-index: 1050;
+}
+
+    .overlay.show {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+.sheet {
+    width: min(96vw, 980px);
+    max-height: 88vh;
+    background: #fff;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.sheet-header {
+    position: sticky;
+    top: 0;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #fff;
+    background: linear-gradient(90deg,var(--brand-1),var(--brand-2),var(--brand-3));
+}
+
+.sheet-body {
+    padding: 18px;
+    overflow: auto;
+    background: linear-gradient(180deg,#ffffff 0%, #f7fbff 100%);
+}
+
+.sheet-footer {
+    padding: 12px 16px;
+    border-top: 1px solid #eef2f7;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+/* 11) Grid kılavuzu (otomatik sütunlu item dizilimi) */
+.auto-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+}
+
+/* 12) Mobil dokunmatik iyileştirmeler */
+@media (max-width:576px) {
+    .btn, .form-control, .form-select {
+        min-height: 44px;
+    }
+
+    .card-body {
+        padding: 1rem;
+    }
+
+    .scroll-container {
+        max-height: 420px;
+    }
+}
+/* Student Home uyarlamaları */
+.auto-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.card-soft h6 {
+    letter-spacing: .2px;
+}
+
+.display-6 {
+    font-size: clamp(1.75rem, 2vw + 1rem, 2.25rem);
+}
+
+@media (max-width:576px) {
+    .header-icon {
+        width: 40px;
+        height: 40px;
+    }
+}
+/* Şekilli büyük değerler (ör. ANO, AGNO) */
+.value-display {
+    font-size: clamp(2rem, 3vw + 1rem, 2.5rem);
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(90deg, var(--brand-1), var(--brand-2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* İsim / metin vurgusu (ör. Öğretmen adı) */
+.name-display {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--brand-1);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+    .name-display i {
+        font-size: 1.25rem;
+        color: var(--brand-2);
+    }
+
+/* Küçük açıklama metinleri */
+.text-subtle {
+    font-size: 0.85rem;
+    color: #6b7280;
+}
+
+/* Ortalamalar için alt bilgi */
+.info-note {
+    font-size: 0.8rem;
+    font-style: italic;
+    color: #9ca3af;
+}

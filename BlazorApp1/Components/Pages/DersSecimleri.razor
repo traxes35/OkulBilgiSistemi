@@ -1,0 +1,467 @@
+﻿@page "/student/courses"
+@attribute [Authorize(Roles = "Öğrenci")]
+@rendermode InteractiveServer
+
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+
+@inject IStudentCourseService StudentCourseService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject ICourseSelectionService CourseSelectionService
+@inject ITermService TermService
+
+<div class="page-bg">
+    <div class="container-fluid py-3">
+
+        <!-- Header -->
+        <div class="card-soft p-3 mb-3 header-wrap">
+            <div class="d-flex align-items-center gap-3">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-journal-check fs-5"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h3 class="mb-1">📘 Öğrenci: Ders Seçimi</h3>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge-title">
+                            Seçili Kredi:
+                            <strong class="ms-1">@TotalSelectedCredits / @MaxCreditLimit</strong>
+                        </span>
+                        <span class="badge-title">
+                            Seçili Ders: <strong class="ms-1">@selectedCourseIds.Count</strong>
+                        </span>
+                        <span class="badge-title">
+                            Tamamlanmamış FF: <strong class="ms-1">@ffAltSinifCourseIds.Except(selectedCourseIds).Count()</strong>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (!isSelectionOpen)
+        {
+            <div class="alert alert-warning">⚠️ Şu anda ders seçim dönemi aktif değildir.</div>
+        }
+        else
+        {
+            @* Önceki Güz Dönemi *@
+            @if (previousGuzCourses.Any())
+            {
+                <div class="card-soft mb-3">
+                    <div class="p-3 pb-2 fw-semibold d-flex align-items-center gap-2">
+                        <i class="bi bi-clock-history"></i>
+                        <span>📘 Bir Önceki Güz Dönemi Dersleri</span>
+                    </div>
+                    <div class="px-3 pb-3">
+                        <div class="scroll-container">
+                            <table class="table table-bordered table-sm table-colorful table-sticky table-nowrap mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Kod</th>
+                                        <th>Ad</th>
+                                        <th>Kredi</th>
+                                        <th>Sınıf</th>
+                                        <th>Harf Notu</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var course in previousGuzCourses)
+                                    {
+                                        <tr>
+                                            <td><span class="pill pill-code">@course.Course.CourseCode</span></td>
+                                            <td>@course.Course.CourseName</td>
+                                            <td><span class="pill pill-credit">@course.Course.Credit</span></td>
+                                            <td><span class="pill pill-class">@course.Course.ClassLevel</span></td>
+                                            <td class="@(course.LetterGrade == "FF" ? "text-danger fw-bold" : null)">@course.LetterGrade</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* Seçilebilir Dersler *@
+            @if (selectableCourses != null)
+            {
+                <div class="card-soft p-3 mb-2">
+                    <div class="small text-muted">
+                        <strong>Toplam Seçili Kredi:</strong> @TotalSelectedCredits / @MaxCreditLimit
+                    </div>
+                </div>
+
+                <EditForm Model="dummyFormModel" OnValidSubmit="SaveCourses">
+                    @foreach (var group in selectableCourses.GroupBy(c => c.ClassLevel).OrderBy(g => g.Key))
+                    {
+                        var groupCourses = group.ToList();
+
+                        var normalCourses = groupCourses
+                        .Where(course => !(previousGuzCourses.Any(pc => pc.CourseId == course.Id && pc.LetterGrade == "FF") &&
+                        selectedCourseIds.Contains(course.Id)))
+                        .ToList();
+
+                        var ffSelectedCourses = groupCourses
+                        .Where(course => previousGuzCourses.Any(pc => pc.CourseId == course.Id && pc.LetterGrade == "FF") &&
+                        selectedCourseIds.Contains(course.Id))
+                        .ToList();
+
+                        <div class="card-soft mb-3">
+                            <div class="p-3 pb-2 fw-semibold d-flex align-items-center">
+                                <i class="bi bi-list-check me-2"></i>
+                                <span>@group.Key. Sınıf Dersleri</span>
+                                <span class="ms-auto pill pill-term">Ders: @(normalCourses.Count + ffSelectedCourses.Count)</span>
+                            </div>
+
+                            <div class="px-3 pb-3">
+                                <div class="scroll-container">
+                                    <table class="table table-bordered table-sm table-hover table-sticky table-nowrap align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Seç</th>
+                                                <th>Kod</th>
+                                                <th>Ad</th>
+                                                <th>Kredi</th>
+                                                <th>Kontenjan</th>
+                                                <th>Not</th>
+                                                <th>Durum</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var course in normalCourses)
+                                            {
+                                                var isSelected = selectedCourseIds.Contains(course.Id);
+                                                var isFull = course.Quota <= 0;
+                                                var wouldExceed = !isSelected && (TotalSelectedCredits + course.Credit > MaxCreditLimit);
+                                                var isFF = previousGuzCourses.Any(pc => pc.CourseId == course.Id && pc.LetterGrade == "FF");
+
+                                                <tr class="@(isFF ? "table-warning" : null)">
+                                                    <td class="text-center">
+                                                        <input type="checkbox"
+                                                               checked="@isSelected"
+                                                               disabled="@(
+                                                               (isFull || wouldExceed
+                                                                || (blockOwnClassSelection && course.ClassLevel >= classLevel)            // FF varken: kendi+üst sınıf kilit
+                                                                || (!blockOwnClassSelection && course.ClassLevel > classLevel && !allowUpperClass) // FF bitti ama üst sınıf için şart sağlanmadı
+                                                               ) && !isSelected)" @onchange="@((ChangeEventArgs e) => OnCourseSelectionChanged(course.Id, course.Credit, (bool)e.Value))" />
+                                        @if (!blockOwnClassSelection && course.ClassLevel > classLevel && !allowUpperClass && !isSelected)
+                                                        {
+                                                            <div class="text-muted small mt-1">Üst sınıf dersleri, kredin kalan ve kendi sınıfında alınabilir ders kalmadığında açılır.</div>
+                                                        }
+                                                        @if (blockOwnClassSelection && course.ClassLevel == classLevel && !isSelected)
+                                                        {
+                                                            <div class="text-danger small mt-1">⬅️ FF alınmalı</div>
+                                                        }
+                                                    </td>
+                                                    <td><span class="pill pill-code">@course.CourseCode</span></td>
+                                                    <td>@course.CourseName</td>
+                                                    <td><span class="pill pill-credit">@course.Credit</span></td>
+                                                    <td>@course.Quota</td>
+                                                    <td>
+                                                        @{
+                                                            var harfNotu = previousAllCourses
+                                                            .FirstOrDefault(sc => sc.Course.CourseCode == course.CourseCode)?.LetterGrade ?? "-";
+                                                        }
+                                                        <span class="@((harfNotu == "FF") ? "text-danger fw-bold" : null)">@harfNotu</span>
+                                                    </td>
+                                                    <td>
+                                                        @if (isFull)
+                                                        {
+                                                            <span class="text-danger">Kontenjan dolu</span>
+                                                        }
+                                                        else if (wouldExceed)
+                                                        {
+                                                            <span class="text-warning">Kredi aşıldı</span>
+                                                        }
+                                                        else if (isFF)
+                                                        {
+                                                            <span class="text-danger">FF dersi</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="text-success">Uygun</span>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+
+                                            @foreach (var course in ffSelectedCourses)
+                                            {
+                                                <tr class="table-danger">
+                                                    <td class="text-center">
+                                                        <input type="checkbox" checked disabled />
+                                                    </td>
+                                                    <td><span class="pill pill-code">@course.CourseCode</span></td>
+                                                    <td>@course.CourseName</td>
+                                                    <td><span class="pill pill-credit">@course.Credit</span></td>
+                                                    <td>@course.Quota</td>
+                                                    <td class="text-danger fw-bold">FF</td>
+                                                    <td class="text-danger fw-bold">FF tekrar</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="pill pill-term">Seçili Kredi: @TotalSelectedCredits</span>
+                        <button class="btn btn-gradient-primary ms-auto hover-lift"
+                                type="button"
+                                @onclick="SaveCourses"
+                                disabled="@(TotalSelectedCredits > MaxCreditLimit)">
+                            💾 Kaydet
+                        </button>
+                    </div>
+                </EditForm>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private List<StudentCourse> previousGuzCourses = new();
+    private List<StudentCourse> previousAllCourses = new();
+    private List<Course> selectableCourses = new();
+    private HashSet<int> selectedCourseIds = new();
+    private object dummyFormModel = new();
+    private int TotalSelectedCredits = 0;
+    private const int MaxCreditLimit = 45;
+    private bool isSelectionOpen = false;
+    [Inject] IJSRuntime JSRuntime { get; set; }
+
+    private List<int> ffAltSinifCourseIds = new();
+    private bool blockOwnClassSelection = true;
+    private int classLevel;
+    private int studentClassLevel;
+    private List<string> ffAltSinifCourseNames = new();
+    private List<string> selectedCourseNames = new();
+    // fields
+    private bool allowUpperClass = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isSelectionOpen = await CourseSelectionService.IsCourseSelectionOpenAsync();
+        if (!isSelectionOpen)
+            return;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        studentClassLevel = user?.SinifSeviyesi ?? 0;
+
+        if (user == null)
+            return;
+
+        int studentId = user.Id;
+        classLevel = user.SinifSeviyesi ?? 1;
+
+        var activeTerm = await TermService.GetActiveTermAsync();
+        if (activeTerm == null) return;
+
+        int previousYear, previousSemester;
+        if (activeTerm.Semester == 1) // Güz
+        {
+            previousSemester = 1; // Bahar
+            previousYear = activeTerm.Year - 1;
+        }
+        else
+        {
+            previousSemester = 2; // Güz
+            previousYear = activeTerm.Year - 1;
+        }
+
+        var allPrevious = await StudentCourseService.GetCoursesByStudentIdAsync(studentId);
+        previousAllCourses = allPrevious
+            .Where(sc => !string.IsNullOrEmpty(sc.LetterGrade))
+            .GroupBy(sc => sc.CourseId)
+            .Select(g => g.First())
+            .ToList();
+
+        previousGuzCourses = previousAllCourses
+            .Where(sc =>
+                sc.Course.Term.Year == previousYear &&
+                sc.Course.Term.Semester == previousSemester)
+            .ToList();
+
+        ffAltSinifCourseIds = previousGuzCourses
+            .Where(sc =>
+                sc.LetterGrade == "FF" &&
+                sc.Course.ClassLevel < classLevel)
+            .Select(sc => sc.CourseId)
+            .ToList();
+
+        ffAltSinifCourseNames = previousGuzCourses
+            .Where(sc =>
+                sc.LetterGrade == "FF" &&
+                sc.Course.ClassLevel < classLevel)
+            .Select(sc => sc.Course.CourseName)
+            .Distinct()
+            .ToList();
+
+        Console.WriteLine("🧾 Geçen seneki dersler:");
+        foreach (var cid in previousAllCourses)
+        {
+            Console.WriteLine($"  - CourseId: {cid.CourseId}" + $"  - CourseId: {cid.Course.CourseName}");
+        }
+
+        Console.WriteLine("🧾 Geçen seneki Güz dersler:");
+        foreach (var cid in previousGuzCourses)
+        {
+            Console.WriteLine($"  - CourseId: {cid.CourseId}" + $"  - CourseId: {cid.Course.CourseName}");
+        }
+
+        Console.WriteLine("🧾 FF Alt Sınıf Dersleri:");
+        foreach (var cid in ffAltSinifCourseIds)
+        {
+            Console.WriteLine($"  - CourseId: {cid}");
+        }
+
+        selectableCourses = await StudentCourseService.GetSelectableCoursesAsync(studentId, classLevel);
+        selectedCourseIds = (await StudentCourseService.GetSelectedCoursesAsync(studentId))
+            .Select(sc => sc.CourseId)
+            .ToHashSet();
+
+        selectedCourseNames = selectableCourses
+            .Where(c => selectedCourseIds.Contains(c.Id))
+            .Select(c => c.CourseName)
+            .ToList();
+
+        Console.WriteLine("📆 SelectableCourses:");
+        foreach (var sc in selectableCourses)
+        {
+            Console.WriteLine($" - CourseId: {sc.Id} " + $" - CourseName: {sc.CourseName}");
+        }
+        Console.WriteLine("📆 Aktif Dönem Seçilen Dersler:");
+        foreach (var sc in selectedCourseIds)
+        {
+            Console.WriteLine($" - CourseId: {sc}");
+        }
+
+        var missingFFs = ffAltSinifCourseIds.Except(selectedCourseIds).ToList();
+        Console.WriteLine("🚫 Eksik FF Dersleri:");
+        foreach (var cid in missingFFs)
+        {
+            Console.WriteLine($"  - Eksik FF: {cid}");
+        }
+
+        blockOwnClassSelection = missingFFs.Any();
+        Console.WriteLine("🚧 blockOwnClassSelection = " + blockOwnClassSelection);
+
+        TotalSelectedCredits = selectableCourses
+            .Where(c => selectedCourseIds.Contains(c.Id))
+            .Sum(c => c.Credit);
+        RecomputeUpperClassGate();
+
+        }
+
+    private async Task OnCourseSelectionChanged(int courseId, int credit, bool isChecked)
+    {
+        var course = selectableCourses.FirstOrDefault(c => c.Id == courseId);
+        if (course == null) return;
+
+        if (isChecked)
+        {
+            selectedCourseIds.Add(courseId);
+            selectedCourseNames.Add(course.CourseName);
+            TotalSelectedCredits += credit;
+        }
+        else
+        {
+            selectedCourseIds.Remove(courseId);
+            selectedCourseNames.Remove(course.CourseName);
+            TotalSelectedCredits -= credit;
+        }
+
+        var ffStillMissing = ffAltSinifCourseNames
+            .Where(ffName => !selectedCourseNames.Contains(ffName))
+            .ToList();
+
+        blockOwnClassSelection = ffStillMissing.Any();
+
+        Console.WriteLine("⛔ Eksik FF dersi sayısı = " + ffStillMissing.Count);
+        foreach (var f in ffStillMissing)
+            Console.WriteLine("❌ Eksik FF: " + f);
+
+        RecomputeUpperClassGate();
+        StateHasChanged();
+    }
+
+    private async Task SaveCourses()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user == null)
+        {
+            await ShowMessageAsync("⛔ Kullanıcı bulunamadı.", isError: true);
+            return;
+        }
+
+        int studentId = user.Id;
+
+        // ⚠️ blockOwnClassSelection aktifse ve öğrenci kendi sınıf dersi seçmişse kayıt engellensin
+        if (blockOwnClassSelection)
+        {
+            var ownClassSelected = selectableCourses
+                .Any(course =>
+                    selectedCourseIds.Contains(course.Id) &&
+                    course.ClassLevel == classLevel);
+
+            if (ownClassSelected)
+            {
+                await ShowMessageAsync("⛔ Alttan FF ders(ler) varken kendi sınıf dersleri seçilemez.", isError: true);
+                return;
+            }
+        }
+        if (!allowUpperClass)
+        {
+            var anyUpperSelected = selectableCourses.Any(c => c.ClassLevel > classLevel && selectedCourseIds.Contains(c.Id));
+            if (anyUpperSelected)
+            {
+                await ShowMessageAsync("⛔ Üst sınıf dersi seçebilmek için önce kendi sınıfında kredine sığan dersleri tamamla.", isError: true);
+                return;
+            }
+        }
+
+        try
+        {
+            await StudentCourseService.SaveSelectedCoursesAsync(studentId, selectedCourseIds.ToList());
+            await ShowMessageAsync("✅ Ders seçimleri başarıyla kaydedildi.");
+        }
+        catch (Exception ex)
+        {
+            await ShowMessageAsync($"❌ Kayıt sırasında hata oluştu: {ex.Message}", isError: true);
+        }
+    }
+
+    private async Task ShowMessageAsync(string message, bool isError = false)
+    {
+        await JSRuntime.InvokeVoidAsync("alert", message);
+    }
+    private bool HasSelectableOwnClass()
+    {
+        var remaining = MaxCreditLimit - TotalSelectedCredits;
+        return selectableCourses.Any(course =>
+            course.ClassLevel == classLevel &&
+            !selectedCourseIds.Contains(course.Id) &&
+            course.Quota > 0 &&
+            course.Credit <= remaining);
+    }
+    private void RecomputeUpperClassGate()
+    {
+        allowUpperClass = !blockOwnClassSelection && !HasSelectableOwnClass();
+    }
+}
+
+<style>
+    .ff-required {
+        background-color: #fff0f0 !important;
+    }
+</style>
+
+

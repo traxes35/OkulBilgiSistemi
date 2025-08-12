@@ -1,0 +1,27 @@
+﻿/* Başlık tonu */
+h3 {
+    color: #0f172a;
+}
+
+/* Tablo: sticky başlık + sıkı padding */
+.table-sticky thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.table-sm td, .table-sm th {
+    padding: .45rem .6rem;
+}
+
+/* Uzun listelerde sayfa uzamasın */
+.scroll-container {
+    max-height: 560px;
+}
+
+/* Mobil optimizasyon */
+@media (max-width: 992px) {
+    .scroll-container {
+        max-height: 420px;
+    }
+}

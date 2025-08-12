@@ -1,0 +1,506 @@
+﻿@page "/admin/course-assignment"
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+
+@inject ITeacherService TeacherService
+@inject ITeacherCourseService TeacherCourseService
+@inject ITeacherCourseTimeService TeacherCourseTimeService
+@inject ITimeSlotService TimeSlotService
+@inject IClassroomService ClassroomService
+@inject IJSRuntime JS
+@inject ITermService TermService
+@inject ApplicationDbContext _context
+
+<HeadContent>
+    <!-- Sayfa-özel minik css -->
+    <link rel="stylesheet" href="css/CourseAssignment.css" />
+</HeadContent>
+
+<div class="page-bg">
+    <div class="container-fluid py-3">
+
+        <!-- Header -->
+        <div class="card-soft p-3 mb-3 header-wrap">
+            <div class="d-flex align-items-center gap-3">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-calendar3-range fs-5"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h3 class="mb-1">📅 Gelişmiş Ders Atama Paneli</h3>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <span class="badge-title">
+                            Aktif Dönem:
+                            <strong class="ms-1">@((ActiveTerm is null) ? "-" : $"{ActiveTerm.Year} / {(ActiveTerm.Semester == 1 ? "Güz" : "Bahar")}")</strong>
+                        </span>
+                        <span class="badge-title">Öğretmen: <strong class="ms-1">@Teachers.Count</strong></span>
+                        <span class="badge-title">Sınıf: <strong class="ms-1">@Classrooms.Count</strong></span>
+                        <span class="badge-title">Zaman Dilimi: <strong class="ms-1">@AllSlots.Count</strong></span>
+                    </div>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-gradient-primary hover-lift" disabled="@IsBusy" @onclick="GenerateAllSchedules">
+                        🧠 Ders Programlarını Otomatik Oluştur
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filtreler / Seçimler -->
+        <div class="card-soft p-3 mb-3">
+            <div class="row g-3">
+                <div class="col-12 col-md-4">
+                    <label class="form-label fw-semibold">👨‍🏫 Öğretmen</label>
+                    <div class="input-group fancy-field">
+                        <span class="input-group-text"><i class="bi bi-person-badge"></i></span>
+                        <select class="form-select" @onchange="OnTeacherChanged">
+                            <option value="">-- Seçiniz --</option>
+                            @foreach (var teacher in Teachers)
+                            {
+                                <option value="@teacher.Id" selected="@(teacher.Id == SelectedTeacherId)">
+                                    @teacher.Isim
+                                </option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <label class="form-label fw-semibold">📘 Ders</label>
+                    <div class="input-group fancy-field">
+                        <span class="input-group-text"><i class="bi bi-book"></i></span>
+                        <select class="form-select" @onchange="OnCourseChanged" disabled="@(SelectedTeacherId <= 0)">
+                            <option value="">-- Seçiniz --</option>
+                            @foreach (var course in TeacherCourses)
+                            {
+                                <option value="@course.Id" selected="@(course.Id == SelectedCourseId)">
+                                    @course.CourseName (@course.WeeklySlotCount saat)
+                                </option>
+                            }
+                        </select>
+                    </div>
+                    @if (SelectedCourseId > 0)
+                    {
+                        <div class="small text-muted mt-1">
+                            🔢 Seçilen slot: @AssignedSlots.Count(a => a.CourseId == SelectedCourseId) / @SelectedCourseSlotLimit
+                        </div>
+                    }
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <label class="form-label fw-semibold">🏫 Sınıf</label>
+                    <div class="input-group fancy-field">
+                        <span class="input-group-text"><i class="bi bi-door-closed"></i></span>
+                        <select class="form-select" @bind="SelectedClassroomId" disabled="@(SelectedTeacherId <= 0)">
+                            <option value="-1">-- Sınıf Seçiniz --</option>
+                            @foreach (var cls in Classrooms)
+                            {
+                                <option value="@cls.Id">@cls.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="col-12 d-flex gap-2">
+                    <button class="btn btn-outline-danger hover-lift" disabled="@(!CanClearSelected)" @onclick="() => ClearSelectedCourseSlots()">
+                        🧹 Bu dersin slotlarını temizle
+                    </button>
+
+                    <button class="btn btn-primary hover-lift ms-auto" disabled="@IsBusy" @onclick="AssignSlots">
+                        💾 Kaydet
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Zaman Çizelgesi -->
+        <div class="card-soft p-0">
+            <div class="sheet-header py-2">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-clock-history"></i>
+                    <span class="fw-semibold small">Zaman Tablosu</span>
+                </div>
+                <div class="ms-auto small d-flex gap-2 flex-wrap">
+                    <span class="pill pill-term">Toplam Atama: @AssignedSlots.Count</span>
+                    @if (SelectedCourseId > 0)
+                    {
+                        <span class="pill pill-class">Bu Ders: @AssignedSlots.Count(a => a.CourseId == SelectedCourseId)</span>
+                    }
+                </div>
+            </div>
+
+            <div class="sheet-body p-0">
+                <div class="scroll-container px-2 py-2">
+                    <div class="calendar-grid">
+                        <div class="calendar-header-cell"></div>
+                        @foreach (var day in Days)
+                        {
+                            <div class="calendar-header-cell">@day</div>
+                        }
+
+                        @for (int row = 0; row < TimeRows.Count; row++)
+                        {
+                            <div class="calendar-row-label">@TimeRows[row].TimeRangeLabel</div>
+
+                            @foreach (var day in Days)
+                            {
+                                var slot = TimeRows[row].SlotsByDay[day];
+                                if (slot is null)
+                                {
+                                    <div class="calendar-cell disabled" title="Uygun slot yok"></div>
+                                }
+                                else
+                                {
+                                    var assignments = AssignedSlots
+                                    .Where(a => a.TimeSlotId == slot.Id)
+                                    .ToList();
+
+                                    <div class="calendar-cell @(assignments.Any() ? "locked" : "")"
+                                         title="@($"{slot.Day} {slot.StartTime:hh\\:mm} - {slot.EndTime:hh\\:mm}")"
+                                         @onclick="() => Toggle(slot.Id)">
+                                        @if (assignments.Any())
+                                        {
+                                            <span class="mini-badge">@assignments.Count</span>
+                                        }
+                                        @foreach (var a in assignments)
+                                        {
+                                            var courseName = TeacherCourses.FirstOrDefault(c => c.Id == a.CourseId)?.CourseName;
+                                            var classroomName = Classrooms.FirstOrDefault(c => c.Id == a.ClassroomId)?.Name;
+                                            if (!string.IsNullOrEmpty(courseName))
+                                            {
+                                                <div class="cell-line" title="@($"{courseName} - {classroomName}")">
+                                                    @courseName @if (!string.IsNullOrWhiteSpace(classroomName)){
+                                                    <span class="text-muted">- @classroomName</span>
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                    @if (!assignments.Any() && SelectedCourseId > 0)
+                                    {
+                                        <div class="cell-hint">Seç</div>
+                                    }
+                                </div>
+                            }
+                        }
+                                                }
+                    </div>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(SuccessMessage))
+            {
+                <div class="sheet-footer small text-muted">
+                    @SuccessMessage
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ApplicationUser> Teachers = new();
+    private List<Course> TeacherCourses = new();
+    private List<TimeSlot> AllSlots = new();
+    private List<TeacherCourseTime> AssignedSlots = new();
+    private List<TimeRowGroup> TimeRows = new();
+    private readonly string[] Days = new[] { "Pazartesi", "Sali", "Çarsamba", "Persembe", "Cuma" };
+    private List<Classroom> Classrooms = new();
+
+    private int SelectedClassroomId = -1;
+    private string? SuccessMessage;
+    private Term? ActiveTerm;
+    private int SelectedTeacherId;
+    private int SelectedCourseId;
+    private int SelectedCourseSlotLimit;
+    private bool IsBusy;
+
+    private bool CanClearSelected => SelectedCourseId > 0 && AssignedSlots.Any(s => s.CourseId == SelectedCourseId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Teachers = await TeacherService.GetAllTeachersAsync();
+        AllSlots = await TimeSlotService.GetAllAsync();
+        Classrooms = await ClassroomService.GetAllAsync();
+        ActiveTerm = await TermService.GetActiveTermAsync();
+        BuildTimeRows();
+    }
+
+    private async Task OnTeacherChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var id))
+            return;
+
+        SelectedTeacherId = id;
+        SelectedCourseId = 0;
+        SelectedCourseSlotLimit = 0;
+        SelectedClassroomId = -1;
+
+        ActiveTerm = await TermService.GetActiveTermAsync();
+
+        TeacherCourses = (await TeacherCourseService.GetCoursesByTeacherIdAsync(id))
+            .Where(tc => (bool)tc.IsResponsibilityApproved && tc.Course.TermId == ActiveTerm?.Id)
+            .Select(tc => tc.Course)
+            .OrderByDescending(c => c.WeeklySlotCount) // daha sonra gridte işimize yarar
+            .ToList();
+
+        AssignedSlots = (await TeacherCourseTimeService.GetByTeacherIdAsync(id))
+            .Where(a => TeacherCourses.Any(c => c.Id == a.CourseId))
+            .ToList();
+    }
+
+    private Task OnCourseChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var id))
+        {
+            SelectedCourseId = id;
+            var selectedCourse = TeacherCourses.FirstOrDefault(c => c.Id == SelectedCourseId);
+            SelectedCourseSlotLimit = selectedCourse?.WeeklySlotCount ?? 0;
+        }
+        return Task.CompletedTask;
+    }
+
+    private void Toggle(int slotId)
+    {
+        if (SelectedTeacherId <= 0)
+        {
+            JS.InvokeVoidAsync("alert", "⛔ Önce öğretmen seçiniz.");
+            return;
+        }
+
+        if (SelectedCourseId <= 0)
+        {
+            JS.InvokeVoidAsync("alert", "⛔ Önce ders seçiniz.");
+            return;
+        }
+
+        if (SelectedClassroomId <= 0)
+        {
+            JS.InvokeVoidAsync("alert", "⛔ Lütfen önce sınıf seçiniz.");
+            return;
+        }
+
+        // Slot başka derse ait mi?
+        if (AssignedSlots.Any(a => a.TimeSlotId == slotId && a.CourseId != SelectedCourseId))
+        {
+            JS.InvokeVoidAsync("alert", "⛔ Bu zaman dilimi zaten başka bir derse atanmış.");
+            return;
+        }
+
+        // Aynı sınıf seviyesi çakışması (anlık kontrol)
+        var selectedCourse = TeacherCourses.First(c => c.Id == SelectedCourseId);
+        int classLevel = selectedCourse.ClassLevel;
+
+        bool hasSameLevelConflict = AssignedSlots
+            .Where(a => a.TimeSlotId == slotId && a.CourseId != SelectedCourseId)
+            .Select(a => TeacherCourses.FirstOrDefault(c => c.Id == a.CourseId))
+            .Any(c => c is not null && c.ClassLevel == classLevel);
+
+        if (hasSameLevelConflict)
+        {
+            JS.InvokeVoidAsync("alert", $"⛔ Bu zaman diliminde zaten {classLevel}. sınıf dersi var!");
+            return;
+        }
+
+        // Ekle/çıkar ve limit kontrolü
+        var existing = AssignedSlots.FirstOrDefault(a => a.TimeSlotId == slotId && a.CourseId == SelectedCourseId);
+        if (existing is not null)
+        {
+            AssignedSlots.Remove(existing);
+        }
+        else
+        {
+            if (AssignedSlots.Count(a => a.CourseId == SelectedCourseId) >= SelectedCourseSlotLimit)
+            {
+                JS.InvokeVoidAsync("alert", "⛔ Bu ders için haftalık slot limitine ulaşıldı.");
+                return;
+            }
+
+            AssignedSlots.Add(new TeacherCourseTime
+            {
+                UserId = SelectedTeacherId,
+                CourseId = SelectedCourseId,
+                TimeSlotId = slotId,
+                ClassroomId = SelectedClassroomId
+            });
+        }
+    }
+
+    private void ClearSelectedCourseSlots()
+    {
+        if (SelectedCourseId > 0)
+            AssignedSlots.RemoveAll(s => s.CourseId == SelectedCourseId);
+    }
+
+    private async Task AssignSlots()
+    {
+        if (SelectedTeacherId <= 0 || ActiveTerm is null) return;
+
+        IsBusy = true;
+        StateHasChanged();
+
+        await TeacherCourseTimeService.SyncTeacherAssignmentsAsync(SelectedTeacherId, AssignedSlots);
+        AssignedSlots = await TeacherCourseTimeService.GetByTeacherIdAsync(SelectedTeacherId);
+        SuccessMessage = "✅ Ders atamaları başarıyla kaydedildi.";
+
+        IsBusy = false;
+    }
+
+    private void BuildTimeRows()
+    {
+        var grouped = AllSlots
+            .GroupBy(s => new { s.StartTime, s.EndTime })
+            .OrderBy(g => g.Key.StartTime)
+            .ToList();
+
+        TimeRows.Clear();
+        foreach (var group in grouped)
+        {
+            var row = new TimeRowGroup
+            {
+                TimeRangeLabel = $"{group.Key.StartTime:hh\\:mm} - {group.Key.EndTime:hh\\:mm}"
+            };
+
+            foreach (var slot in group)
+            {
+                if (Days.Contains(slot.Day ?? "")) row.SlotsByDay[slot.Day!] = slot;
+            }
+            TimeRows.Add(row);
+        }
+    }
+
+    private async Task GenerateAllSchedules()
+    {
+        if (ActiveTerm is null)
+        {
+            await JS.InvokeVoidAsync("alert", "⚠️ Aktif dönem bulunamadı.");
+            return;
+        }
+
+        IsBusy = true;
+        StateHasChanged();
+
+        var allTeachers = await TeacherService.GetAllTeachersAsync();
+        var allCourses = await TeacherCourseService.GetAllAsync();
+        var allClassrooms = await ClassroomService.GetAllAsync();
+        var allSlots = await TimeSlotService.GetAllAsync();
+
+        var orderedSlots = allSlots
+            .OrderBy(s => Array.IndexOf(Days, s.Day))
+            .ThenBy(s => s.StartTime)
+            .ToList();
+
+        var classroomSlotMap = new HashSet<(int classroomId, int slotId)>();
+        var sameLevelSlotMap = new HashSet<(int classLevel, int slotId)>();
+
+        foreach (var teacher in allTeachers)
+        {
+            var teacherCourses = allCourses
+                .Where(tc => tc.UserId == teacher.Id &&
+                             tc.IsResponsibilityApproved == true &&
+                             tc.Course.TermId == ActiveTerm.Id)
+                .Select(tc => tc.Course)
+                .OrderByDescending(c => c.WeeklySlotCount)
+                .ToList();
+
+            var newAssignments = new List<TeacherCourseTime>();
+
+            foreach (var course in teacherCourses)
+            {
+                int classLevel = course.ClassLevel;
+                int slotCount = course.WeeklySlotCount;
+
+                var candidateRooms = allClassrooms
+                    .Where(c => c.Department != null &&
+                                c.DepartmentId == course.DepartmentId &&
+                                c.Name.ToUpper().StartsWith($"{c.Department.Name.ToUpper()[0]}-{classLevel}"))
+                    .ToList();
+
+                bool success = false;
+                var daysShuffled = Days.OrderBy(_ => Guid.NewGuid()).ToList();
+
+                foreach (var day in daysShuffled)
+                {
+                    var slotsForDay = orderedSlots
+                        .Where(s => s.Day == day)
+                        .OrderBy(s => Guid.NewGuid())
+                        .ToList();
+
+                    for (int i = 0; i < slotsForDay.Count; i++)
+                    {
+                        var candidateGroup = TryFindAdjacentSlots(slotsForDay, i, slotCount);
+                        if (candidateGroup.Count < slotCount) continue;
+
+                        if (candidateGroup.Any(s => sameLevelSlotMap.Contains((classLevel, s.Id))))
+                            continue;
+
+                        foreach (var room in candidateRooms.OrderBy(_ => Guid.NewGuid()))
+                        {
+                            bool roomFree = candidateGroup.All(s => !classroomSlotMap.Contains((room.Id, s.Id)));
+                            if (!roomFree) continue;
+
+                            foreach (var slot in candidateGroup)
+                            {
+                                newAssignments.Add(new TeacherCourseTime
+                                {
+                                    UserId = teacher.Id,
+                                    CourseId = course.Id,
+                                    TimeSlotId = slot.Id,
+                                    ClassroomId = room.Id
+                                });
+                                classroomSlotMap.Add((room.Id, slot.Id));
+                                sameLevelSlotMap.Add((classLevel, slot.Id));
+                            }
+
+                            success = true;
+                            break;
+                        }
+
+                        if (success) break;
+                    }
+                    if (success) break;
+                }
+
+                if (!success)
+                {
+                    Console.WriteLine($"🚫 Atama yapılamadı: {teacher.Isim} → {course.CourseName} ({slotCount} saat)");
+                }
+            }
+
+            await TeacherCourseTimeService.SyncTeacherAssignmentsAsync(teacher.Id, newAssignments);
+            Console.WriteLine($"✅ {teacher.Isim} için {newAssignments.Count} slot atandı.");
+        }
+
+        await JS.InvokeVoidAsync("alert", "✅ Otomatik ders atamaları tamamlandı.");
+        IsBusy = false;
+    }
+
+    private List<TimeSlot> TryFindAdjacentSlots(List<TimeSlot> slots, int startIndex, int count)
+    {
+        var group = new List<TimeSlot>();
+        if (startIndex + count > slots.Count) return group;
+
+        group.Add(slots[startIndex]);
+        for (int i = 1; i < count; i++)
+        {
+            var prev = group.Last();
+            var next = slots[startIndex + i];
+            if (next.StartTime == prev.EndTime) group.Add(next);
+            else break;
+        }
+        return group.Count == count ? group : new List<TimeSlot>();
+    }
+
+    private class TimeRowGroup
+    {
+        public string TimeRangeLabel { get; set; } = "";
+        public Dictionary<string, TimeSlot?> SlotsByDay { get; set; } = new()
+        {
+            { "Pazartesi", null }, { "Sali", null }, { "Çarsamba", null }, { "Persembe", null }, { "Cuma", null }
+        };
+    }
+}

@@ -1,0 +1,439 @@
+﻿@page "/admin/users"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole<int>> RoleManager
+@inject ILogger<AdminUsers> Logger
+@inject ApplicationDbContext ApplicationDbContext
+@inject IUserStore<ApplicationUser> UserStore
+
+<PageTitle>Admin Kullanıcılar</PageTitle>
+
+<div class="page-bg py-3">
+    <div class="container">
+
+        <!-- Başlık -->
+        <div class="header-wrap mb-3">
+            <div class="d-flex align-items-center gap-2">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-people-fill fs-5"></i>
+                </div>
+                <div>
+                    <h4 class="mb-1">Kullanıcılar</h4>
+                    <span class="badge-title">Yönetim</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0 fw-semibold">Kullanıcı Listesi</h6>
+            <button class="btn btn-gradient-primary hover-lift" @onclick="ShowAddUserModal">
+                <i class="bi bi-plus-circle me-1"></i> Yeni Kullanıcı Ekle
+            </button>
+        </div>
+
+        @if (users == null)
+        {
+            <div class="card-soft p-4 text-muted">Yükleniyor...</div>
+        }
+        else
+        {
+            <div class="card-soft p-0">
+                <div class="scroll-container">
+                    <table class="table table-sm table-colorful table-sticky table-nowrap mb-0">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>İsim</th>
+                                <th>Soyisim</th>
+                                <th>Email</th>
+                                <th>Max Seçmeli</th>
+                                <th>Kredi Limiti</th>
+                                <th>Departman</th>
+                                <th>Sınıf</th>  @* Herkeste görünür *@
+                                <th>Roller</th>  @* Herkeste görünür *@
+                                <th>İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in users)
+                            {
+                                var isStudent = userRoles.TryGetValue(user.Id, out var rls) && rls.Contains("Öğrenci");
+                                var currentLevel = studentClassLevel.TryGetValue(user.Id, out var lvl) ? lvl : user.SinifSeviyesi;
+
+                                <tr>
+                                    <td>@user.Id</td>
+                                    <td>@user.Isim</td>
+                                    <td>@user.Soyisim</td>
+                                    <td>@user.Email</td>
+                                    <td>@user.MaxSecmeliDers</td>
+                                    <td>@user.KrediLimiti</td>
+                                    <td>@user.Department?.Name</td>
+
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <!-- Mevcut değer herkes için gösterilir -->
+                                            <span class="badge bg-light text-dark">
+                                                @((currentLevel.HasValue && currentLevel.Value >= 1 && currentLevel.Value <= 4)
+                                                                                        ? $"{currentLevel}. Sınıf"
+                                                                                        : "—" )
+                                    </span>
+
+                                            <!-- SADECE Öğrenci için düzenleme kontrolleri -->
+                                    @if (isStudent)
+                                            {
+                                                <select class="form-select form-select-sm w-auto"
+                                                        value="@((currentLevel ?? 0).ToString())"
+                                                        @onchange="e => OnClassLevelChanged(user.Id, e.Value?.ToString())">
+                                                    <option value="0">— Seç —</option>
+                                                    <option value="1">1. Sınıf</option>
+                                                    <option value="2">2. Sınıf</option>
+                                                    <option value="3">3. Sınıf</option>
+                                                    <option value="4">4. Sınıf</option>
+                                                </select>
+                                                <button type="button"
+                                                        class="btn btn-sm btn-gradient-primary"
+                                                        title="Sınıf seviyesini kaydet"
+                                                        @onclick="() => UpdateClassLevelAsync(user.Id)">
+                                                    Güncelle
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+
+                                    <td>@GetRoles(user.Id)</td>
+
+                                    <td>
+                                        <button class="btn btn-gradient-danger btn-sm" @onclick="() => ConfirmDelete(user.Id)">
+                                            <i class="bi bi-trash"></i> Sil
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @* Silme onayı *@
+        @if (showConfirmDialog)
+        {
+            <div class="modal-backdrop fade show"></div>
+            <div class="modal show d-block" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content modal-soft">
+                        <div class="modal-header modal-header-gradient">
+                            <h5 class="modal-title text-white"><i class="bi bi-exclamation-triangle me-2"></i>Kullanıcı Sil</h5>
+                        </div>
+                        <div class="modal-body">
+                            <p>Bu kullanıcıyı silmek istediğinize emin misiniz?</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" @onclick="() => showConfirmDialog = false">İptal</button>
+                            <button class="btn btn-gradient-danger" @onclick="DeleteConfirmed">Sil</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* Yeni Kullanıcı Modal *@
+        @if (showAddUserModal)
+        {
+            <div class="modal-backdrop fade show"></div>
+            <div class="modal show d-block" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content modal-soft">
+                        <div class="modal-header modal-header-gradient">
+                            <h5 class="modal-title text-white">
+                                <i class="bi bi-person-plus me-2"></i>Yeni Kullanıcı Ekle
+                            </h5>
+                            <span class="chip-default-pass">Varsayılan Şifre: <strong>Default123!</strong></span>
+                        </div>
+                        <div class="modal-body">
+                            <div class="row g-2">
+
+                                <!-- Zorunlu -->
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">İsim <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="newUser.Isim" class="form-control fancy-field" placeholder="İsim" />
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Soyisim <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="newUser.Soyisim" class="form-control fancy-field" placeholder="Soyisim" />
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label">Email <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="newUser.Email" class="form-control fancy-field" placeholder="ornek@uni.edu.tr" />
+                                    <div class="form-hint">Kullanıcı adı (UserName) email’den türetilir.</div>
+                                </div>
+
+                                <!-- Opsiyonel -->
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Sınıf Seviyesi <small class="text-muted">(opsiyonel)</small></label>
+                                    <InputNumber @bind-Value="newUser.SinifSeviyesi" class="form-control fancy-field" placeholder="Örn: 1,2,3,4" />
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Departman <small class="text-muted">(opsiyonel)</small></label>
+                                    <InputSelect @bind-Value="newUser.DepartmentId" class="form-select fancy-field">
+                                        <option value="">— Seçiniz —</option>
+                                        @foreach (var d in departments)
+                                        {
+                                            <option value="@d.Id">@d.Name</option>
+                                        }
+                                    </InputSelect>
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label d-block mb-1">Roller</label>
+                                    <div class="auto-grid">
+                                        @foreach (var role in allRoles)
+                                        {
+                                            <label class="form-check-label role-pill">
+                                                <input class="form-check-input me-1" type="checkbox"
+                                                       value="@role"
+                                                       @onchange="e => ToggleRole(role, e.Value?.ToString())" />
+                                                @role
+                                            </label>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" @onclick="() => showAddUserModal = false">İptal</button>
+                            <button class="btn btn-gradient-primary" @onclick="AddUser">
+                                <i class="bi bi-check2-circle me-1"></i> Ekle
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<ApplicationUser>? users;
+    private Dictionary<int, List<string>> userRoles = new();
+    private bool showConfirmDialog = false;
+    private int userIdToDelete;
+
+    private bool showAddUserModal = false;
+    private ApplicationUser newUser = new();
+    private List<string> allRoles = new();
+    private List<string> selectedRoles = new();
+
+    // Departman seçenekleri
+    private List<Department> departments = new();
+
+    // Sınıf seviyesi edit state (her kullanıcı için son seçilen değer)
+    private Dictionary<int, int?> studentClassLevel = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        users = await ApplicationDbContext.Users
+            .Include(u => u.Department)
+            .ToListAsync();
+
+        foreach (var user in users)
+        {
+            var roles = await UserManager.GetRolesAsync(user);
+            userRoles[user.Id] = roles.ToList();
+
+            // Görünüm tutarlılığı için hepsi için sözlüğe mevcut değeri koyuyoruz
+            studentClassLevel[user.Id] = user.SinifSeviyesi;
+        }
+
+        allRoles = (await RoleManager.Roles.Select(r => r.Name).ToListAsync())!;
+        departments = await ApplicationDbContext.Departments
+            .OrderBy(d => d.Name)
+            .ToListAsync();
+    }
+
+    private void ConfirmDelete(int userId)
+    {
+        userIdToDelete = userId;
+        showConfirmDialog = true;
+    }
+
+    private async Task DeleteConfirmed()
+    {
+        var user = await UserManager.FindByIdAsync(userIdToDelete.ToString());
+        if (user != null)
+        {
+            var roles = await UserManager.GetRolesAsync(user);
+            if (roles.Contains("Admin"))
+            {
+                Logger.LogWarning("Admin kullanıcı silinemez: {UserId}", userIdToDelete);
+                showConfirmDialog = false;
+                return;
+            }
+
+            var result = await UserManager.DeleteAsync(user);
+            if (result.Succeeded)
+            {
+                Logger.LogInformation("Kullanıcı silindi: {UserId}", userIdToDelete);
+                users?.Remove(user);
+                userRoles.Remove(user.Id);
+                studentClassLevel.Remove(user.Id);
+                StateHasChanged();
+            }
+        }
+        showConfirmDialog = false;
+    }
+
+    private string GetRoles(int userId)
+        => userRoles.TryGetValue(userId, out var roles) ? string.Join(", ", roles) : "";
+
+    private void ShowAddUserModal()
+    {
+        newUser = new ApplicationUser();
+        selectedRoles = new();
+        showAddUserModal = true;
+    }
+
+    private void ToggleRole(string role, string? checkedValue)
+    {
+        var isChecked = string.Equals(checkedValue, "true", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(checkedValue, "on", StringComparison.OrdinalIgnoreCase);
+
+        if (isChecked && !selectedRoles.Contains(role))
+            selectedRoles.Add(role);
+        else if (!isChecked && selectedRoles.Contains(role))
+            selectedRoles.Remove(role);
+    }
+
+    // EmailConfirmed otomatik, UserName = Email
+    private async Task AddUser()
+    {
+        if (string.IsNullOrWhiteSpace(newUser.Email))
+        {
+            Logger.LogWarning("Email boş olamaz.");
+            return;
+        }
+
+        var existing = await UserManager.FindByEmailAsync(newUser.Email);
+        if (existing != null)
+        {
+            Logger.LogWarning("Zaten böyle bir kullanıcı var: {Email}", newUser.Email);
+            return;
+        }
+
+        var user = new ApplicationUser
+        {
+            Isim = newUser.Isim?.Trim(),
+            Soyisim = newUser.Soyisim?.Trim(),
+            DepartmentId = newUser.DepartmentId,
+            SinifSeviyesi = newUser.SinifSeviyesi,
+            EmailConfirmed = true
+        };
+
+        await UserStore.SetUserNameAsync(user, newUser.Email, CancellationToken.None);
+        var emailStore = (IUserEmailStore<ApplicationUser>)UserStore;
+        await emailStore.SetEmailAsync(user, newUser.Email, CancellationToken.None);
+
+        var result = await UserManager.CreateAsync(user, "Default123!");
+        if (!result.Succeeded)
+        {
+            Logger.LogError("Kullanıcı ekleme hatası: {Errors}", string.Join(", ", result.Errors.Select(e => e.Description)));
+            return;
+        }
+
+        if (selectedRoles.Count > 0)
+        {
+            var roleResult = await UserManager.AddToRolesAsync(user, selectedRoles);
+            if (!roleResult.Succeeded)
+            {
+                Logger.LogError("Rol ekleme hatası: {Errors}", string.Join(", ", roleResult.Errors.Select(e => e.Description)));
+            }
+        }
+
+        users?.Add(user);
+        userRoles[user.Id] = (await UserManager.GetRolesAsync(user)).ToList();
+        studentClassLevel[user.Id] = user.SinifSeviyesi;
+
+        showAddUserModal = false;
+        StateHasChanged();
+    }
+
+    // sınıf dropdown değişti
+    private void OnClassLevelChanged(int userId, string? value)
+    {
+        if (int.TryParse(value, out var v) && v >= 1 && v <= 4)
+            studentClassLevel[userId] = v;
+        else
+            studentClassLevel[userId] = null; // "— Seç —"
+    }
+
+    // sadece Öğrenci rolünde kaydet
+    private async Task UpdateClassLevelAsync(int userId)
+    {
+        if (!userRoles.TryGetValue(userId, out var roles) || !roles.Contains("Öğrenci"))
+            return;
+
+        var user = await UserManager.FindByIdAsync(userId.ToString());
+        if (user is null) return;
+
+        studentClassLevel.TryGetValue(userId, out var newLevel);
+        user.SinifSeviyesi = newLevel;
+
+        var result = await UserManager.UpdateAsync(user);
+        if (!result.Succeeded)
+        {
+            Logger.LogError("Sınıf seviyesi güncellenemedi ({UserId}): {Errors}",
+                userId, string.Join(", ", result.Errors.Select(e => e.Description)));
+            return;
+        }
+
+        // UI listesinde de güncel tut
+        var row = users?.FirstOrDefault(u => u.Id == userId);
+        if (row != null) row.SinifSeviyesi = newLevel;
+
+        Logger.LogInformation("Sınıf seviyesi güncellendi: {UserId} -> {Level}", userId, newLevel);
+        StateHasChanged();
+    }
+
+    // (Gerekirse) kullanılmıyor ama sende dursun
+    private async Task<string> BuildValidUserNameAsync(string? email, string? isim, string? soyisim)
+    {
+        var basePart = (email ?? "").Split('@').FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(basePart))
+            basePart = $"{isim}{soyisim}";
+
+        basePart = RemoveDiacritics(basePart ?? "");
+        basePart = System.Text.RegularExpressions.Regex.Replace(basePart, "[^a-zA-Z0-9]", "");
+        if (string.IsNullOrWhiteSpace(basePart)) basePart = "user";
+
+        var candidate = basePart;
+        int i = 0;
+        while (await UserManager.FindByNameAsync(candidate) != null)
+            candidate = $"{basePart}{++i}";
+        return candidate;
+    }
+
+    private static string RemoveDiacritics(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var normalized = text.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in normalized)
+        {
+            var uc = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c);
+            if (uc != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(c);
+        }
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
+    }
+}

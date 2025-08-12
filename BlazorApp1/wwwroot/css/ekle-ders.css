@@ -1,0 +1,19 @@
+﻿/* ekle-ders.css — /admin/ekle-ders sayfası için minimal eklemeler
+   (genel stiller app-core.css'de) */
+
+/* Filtre bar */
+.filter-bar .form-label {
+    font-weight: 600;
+}
+
+.filter-bar .form-select {
+    min-height: 42px;
+}
+
+/* Kurs adı sütununda kontrollü truncation */
+.td-course-name {
+    max-width: 220px;
+}
+
+/* (İsteğe bağlı) Masaüstünde liste daha yüksek olsun dersen:
+   .scroll-container{ max-height:560px; } */

@@ -1,0 +1,249 @@
+﻿@page "/student/selected-courses"
+@attribute [Authorize(Roles = "Öğrenci")]
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@inject IStudentCourseService StudentCourseService
+@inject ITeacherCourseTimeService TeacherCourseTimeService
+@inject ICourseService CourseService
+@inject ITimeSlotService TimeSlotService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject ICourseSelectionService CourseSelectionService
+
+<div class="page-bg">
+    <div class="container-fluid py-3">
+
+        <!-- Header -->
+        <div class="card-soft p-3 mb-3 header-wrap">
+            <div class="d-flex align-items-center gap-3">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-calendar-week fs-5"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h3 class="mb-1">📘 Seçilen Derslerin Ders Programı</h3>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge-title">Ders: <strong class="ms-1">@Courses.Count</strong></span>
+                        <span class="badge-title">Atama: <strong class="ms-1">@FinalAssignments.Count</strong></span>
+                        <span class="badge-title">Zaman Aralığı: <strong class="ms-1">@TimeRows.Count</strong></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        @if (TimeRows.Count == 0)
+        {
+            <div class="card-soft p-3 text-muted">Lütfen daha sonra gelin.</div>
+        }
+        else
+        {
+            <div class="card-soft p-3">
+                <div class="schedule-scroll">
+                    <div class="time-grid">
+                        <div class="header-cell"></div>
+                        @foreach (var day in Days)
+                        {
+                            <div class="header-cell">@day</div>
+                        }
+
+                        @for (int row = 0; row < TimeRows.Count; row++)
+                        {
+                            <div class="row-label">@TimeRows[row].TimeRangeLabel</div>
+
+                            @foreach (var day in Days)
+                            {
+                                var slot = TimeRows[row].SlotsByDay[day];
+                                if (slot == null)
+                                {
+                                    <div class="time-cell disabled"></div>
+                                }
+                                else
+                                {
+                                    var entries = FinalAssignments
+                                    .Where(f => f.TimeSlotId == slot.Id)
+                                    .ToList();
+
+                                    <div class="time-cell @(entries.Count > 1 ? "locked" : "")" title="@($"{slot.Day} {slot.StartTime:hh\\:mm}-{slot.EndTime:hh\\:mm}")">
+                                        @if (entries.Count > 1)
+                                        {
+                                            <span class="badge bg-danger mb-1">Çakışma: @entries.Count</span>
+                                        }
+
+                                        @foreach (var a in entries)
+                                        {
+                                            var courseName = Courses.FirstOrDefault(c => c.Id == a.CourseId)?.CourseName ?? "—";
+                                            var classroom = a.ClassroomId.ToString() ?? "-";
+                                            <div class="cell-line">@courseName <span class="cell-room">(@classroom)</span></div>
+                                        }
+                                    </div>
+                                }
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<TimeSlot> AllSlots = new();
+    private List<Course> Courses = new();
+    private List<TeacherCourseTime> FinalAssignments = new();
+    private List<TimeRowGroup> TimeRows = new();
+    private string[] Days = new[] { "Pazartesi", "Sali", "Çarsamba", "Persembe", "Cuma" };
+    bool isSelectionOpen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        isSelectionOpen = await CourseSelectionService.IsCourseSelectionOpenAsync();
+
+        if (isSelectionOpen)
+            return;
+
+        var studentCourses = await StudentCourseService.GetCoursesByStudentIdAsync(user.Id);
+        var activeStudentCourses = studentCourses.Where(sc => sc.IsActive).ToList();
+        var courseIds = activeStudentCourses.Select(sc => sc.CourseId).ToList();
+
+        Courses = await CourseService.GetByIdsAsync(courseIds);
+        FinalAssignments = await TeacherCourseTimeService.GetByCourseIdsAsync(courseIds);
+        AllSlots = await TimeSlotService.GetAllAsync();
+
+        BuildTimeRows();
+    }
+
+    private void BuildTimeRows()
+    {
+        var grouped = AllSlots
+            .GroupBy(s => new { s.StartTime, s.EndTime })
+            .OrderBy(g => g.Key.StartTime)
+            .ToList();
+
+        TimeRows.Clear();
+        foreach (var group in grouped)
+        {
+            var row = new TimeRowGroup
+            {
+                TimeRangeLabel = $"{group.Key.StartTime:hh\\:mm} - {group.Key.EndTime:hh\\:mm}"
+            };
+
+            foreach (var slot in group)
+            {
+                if (Days.Contains(slot.Day ?? ""))
+                    row.SlotsByDay[slot.Day!] = slot;
+            }
+
+            TimeRows.Add(row);
+        }
+    }
+
+    private class TimeRowGroup
+    {
+        public string TimeRangeLabel { get; set; } = "";
+        public Dictionary<string, TimeSlot?> SlotsByDay { get; set; } = new()
+        {
+            { "Pazartesi", null }, { "Sali", null }, { "Çarsamba", null }, { "Persembe", null }, { "Cuma", null }
+        };
+    }
+}
+
+<style>
+    /* ---- Program ızgarası (app-core temasına uyumlu) ---- */
+    .schedule-scroll {
+        overflow: auto; /* Küçük ekranda yatay kaydırma */
+        border-radius: var(--radius-md);
+        border: 1px solid #eef2f7;
+        background: #fff;
+    }
+
+    .time-grid {
+        display: grid;
+        grid-template-columns: 110px repeat(5, minmax(160px, 1fr));
+        gap: 6px;
+        min-width: 100%;
+        padding: 12px;
+        background: linear-gradient(180deg,#ffffff 0%, #f7fbff 100%);
+    }
+
+    .header-cell {
+        background: linear-gradient(90deg,var(--brand-1),var(--brand-2));
+        color: #fff;
+        font-weight: 600;
+        padding: 10px;
+        text-align: center;
+        border-radius: 8px;
+        font-size: clamp(.78rem, .7vw + .55rem, .95rem);
+    }
+
+    .row-label {
+        background: #6c757d;
+        color: #fff;
+        font-weight: 600;
+        padding: 10px;
+        text-align: center;
+        border-radius: 8px;
+        font-size: clamp(.78rem, .7vw + .55rem, .95rem);
+        position: sticky;
+        left: 0; /* Soldaki saat kolonu sabit kalsın */
+    }
+
+    .time-cell {
+        background-color: #e9ecef;
+        color: #0f172a;
+        padding: 6px;
+        text-align: center;
+        border-radius: 8px;
+        min-height: 60px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        font-size: clamp(.78rem, .65vw + .5rem, .95rem);
+        transition: background-color .15s ease;
+    }
+
+        .time-cell .cell-line {
+            max-width: 100%;
+            overflow-wrap: break-word; /* uzun kelimeleri kır */
+            white-space: normal; /* satır kaydırmaya izin ver */
+            text-align: center;
+            line-height: 1.2;
+        }
+
+        .time-cell .cell-room {
+            opacity: .8;
+            font-weight: 600;
+        }
+
+        .time-cell.locked {
+            background-color: #ffeb99; /* Çakışma rengi */
+            color: #212529;
+            border: 2px solid #ffca2c;
+        }
+
+        .time-cell.disabled {
+            background-color: #ced4da;
+            color: #6c757d;
+            opacity: .7;
+        }
+
+        .time-cell:hover {
+            background-color: #dfe6ec;
+        }
+
+    /* Küçük ekranlarda daha kompakt */
+    @@media (max-width: 992px) {
+        .time-grid
+
+    {
+        grid-template-columns: 90px repeat(5, minmax(140px, 1fr));
+    }
+
+    }
+</style>

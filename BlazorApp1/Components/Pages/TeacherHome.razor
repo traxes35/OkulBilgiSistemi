@@ -1,0 +1,180 @@
+﻿@page "/teacher/home"
+@attribute [Authorize(Roles = "Öğretmen")]
+@rendermode InteractiveServer
+
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+
+@inject ITermService TermService
+@inject ApplicationDbContext Db
+@inject AuthenticationStateProvider AuthProvider
+@inject UserManager<ApplicationUser> UserManager
+
+<div class="page-bg py-3">
+    <div class="container">
+
+        <!-- Başlık -->
+        <div class="header-wrap mb-3">
+            <div class="d-flex align-items-center gap-2">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-easel2 fs-5"></i>
+                </div>
+                <div>
+                    <h4 class="mb-1">Öğretmen Ana Sayfası</h4>
+                    <span class="badge-title">@(me?.Isim ?? "Öğretmen")</span>
+                </div>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="card-soft p-4 text-muted">Yükleniyor...</div>
+        }
+        else
+        {
+            <!-- 1) Aktif Dönem -->
+            <div class="card-soft p-3 mb-2 hover-lift">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h6 class="mb-0 fw-semibold"><i class="bi bi-calendar2-week me-2"></i>Aktif Dönem</h6>
+                    <span class="count-chip px-2 py-1">
+                        @(activeTerm is null ? "—" : $"{GetSemesterName(activeTerm.Semester)} {activeTerm.Year}")
+                    </span>
+                </div>
+                <div class="mt-2 text-subtle">
+                    @if (activeTerm is null)
+                    {
+                        <span>Aktif dönem bulunamadı.</span>
+                    }
+                    else
+                    {
+                        <span>Yıl: <strong>@activeTerm.Year</strong> • Yarıyıl: <strong>@GetSemesterName(activeTerm.Semester)</strong></span>
+                    }
+                </div>
+            </div>
+
+            <!-- 2) Akademik Bilgiler -->
+            <div class="card-soft p-3 mb-2 hover-lift">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h6 class="mb-0 fw-semibold"><i class="bi bi-building me-2"></i>Akademik Bilgiler</h6>
+                    <span class="badge-title">Profil</span>
+                </div>
+
+                <div class="auto-line mt-2">
+                    <span class="pill pill-class">Fakülte: <strong>@(string.IsNullOrWhiteSpace(facultyName) ? "—" : facultyName)</strong></span>
+                    <span class="pill pill-code">Bölüm: <strong>@(string.IsNullOrWhiteSpace(departmentName) ? "—" : departmentName)</strong></span>
+                    <span class="pill pill-mandatory">Unvan: <strong>@(string.IsNullOrWhiteSpace(title) ? "—" : title)</strong></span>
+                </div>
+            </div>
+
+            <!-- 3) Aktif Dönemde Onaylı Dersler -->
+            <div class="card-soft p-3 hover-lift">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <h6 class="mb-0 fw-semibold"><i class="bi bi-list-check me-2"></i>Aktif Dönemde Sorumlu Olduğum Onaylı Dersler</h6>
+                    <span class="count-chip px-2 py-1">@approvedCourses.Count adet</span>
+                </div>
+
+                @if (!approvedCourses.Any())
+                {
+                    <div class="text-muted">Bu dönemde onaylı dersiniz bulunmuyor.</div>
+                }
+                else
+                {
+                    <div class="scroll-container">
+                        <table class="table table-sm table-colorful table-sticky table-nowrap mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Kod</th>
+                                    <th>Ders Adı</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var c in approvedCourses)
+                                {
+                                    <tr>
+                                        <td><span class="pill pill-code">@c.CourseCode</span></td>
+                                        <td>@c.CourseName</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool isLoading = true;
+
+    private ApplicationUser? me;
+    private int teacherId;
+    private Term? activeTerm;
+
+    private string? facultyName;
+    private string? departmentName;
+    private string? title;
+
+    private List<Course> approvedCourses = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthProvider.GetAuthenticationStateAsync();
+            me = await UserManager.GetUserAsync(authState.User);
+            if (me == null) { isLoading = false; return; }
+
+            // Projede int PK varsayımı
+            teacherId = me.Id;
+
+            // Aktif dönem
+            activeTerm = await TermService.GetActiveTermAsync();
+
+            // Akademik bilgiler (Department -> Faculty)
+            if (me.DepartmentId != null)
+            {
+                var dept = await Db.Departments
+                                   .Include(d => d.Faculty)
+                                   .FirstOrDefaultAsync(d => d.Id == me.DepartmentId);
+
+                if (dept != null)
+                {
+                    departmentName = !string.IsNullOrWhiteSpace(dept.Name)
+                        ? dept.Name
+                        : (dept.GetType().GetProperty("DepartmentName")?.GetValue(dept)?.ToString() ?? "—");
+
+                    facultyName = dept.Faculty != null
+                        ? (!string.IsNullOrWhiteSpace(dept.Faculty.Name)
+                            ? dept.Faculty.Name
+                            : (dept.Faculty.GetType().GetProperty("FacultyName")?.GetValue(dept.Faculty)?.ToString() ?? "—"))
+                        : "—";
+                }
+            }
+
+            // Aktif dönemde onaylı dersler (IsResponsibilityApproved == true)
+            if (activeTerm != null)
+            {
+                approvedCourses = await Db.TeacherCourses
+                    .Include(tc => tc.Course)
+                    .Where(tc => tc.UserId == teacherId
+                                 && tc.IsResponsibilityApproved == true
+                                 && tc.Course.TermId == activeTerm.Id)
+                    .Select(tc => tc.Course)
+                    .Distinct()
+                    .ToListAsync();
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string GetSemesterName(int semester) => semester == 1 ? "Güz" : "Bahar";
+}

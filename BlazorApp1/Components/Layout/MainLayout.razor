@@ -1,0 +1,404 @@
+﻿@using BlazorApp1.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.WebUtilities
+@inherits LayoutComponentBase
+@implements IDisposable
+@layout EmptyLayout
+
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthProvider
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IJSRuntime JS
+
+<div class="app-shell @(isCollapsed ? "is-collapsed" : "") @(isMobileOpen ? "is-mobile-open" : "")">
+    <!-- Sidebar -->
+    <aside class="app-sidebar">
+        <div class="sidebar-header">
+            <div class="brand brand-clickable" role="button" tabindex="0"
+                 title="Küçük görünüme geç (EmptyLayout)"
+                 @onclick="GoEmptyLayout"
+                 @onkeydown="HandleBrandKeydown">
+                <span class="brand-logo">🎓</span>
+                <span class="brand-text">OkulYönetimSistemi</span>
+            </div>
+
+            <div class="header-actions">
+                <!-- İstersen başka aksiyonlar ekleyebilirsin -->
+            </div>
+        </div>
+
+        <div class="sidebar-body">
+            <nav>
+                <NavMenu HomeHref="@homeHref" CurrentUrl="@currentUrl" />
+            </nav>
+        </div>
+
+        <div class="sidebar-footer">
+            <span class="badge-title">OkulYönetimSistemi • v1.0</span>
+        </div>
+    </aside>
+
+    <!-- Mobil overlay (açıksa tıklayınca kapanır) -->
+    <div class="app-overlay" @onclick="ToggleVisibility"></div>
+
+    <!-- İçerik -->
+    <main class="app-main">
+        <!-- Mobil üst çubuk -->
+        <div class="app-topbar d-lg-none">
+            <button type="button" class="icon-btn" @onclick="ToggleVisibility" title="Menü">
+                <i class="bi bi-list"></i>
+            </button>
+            <div class="top-brand">OkulYönetimSistemi</div>
+        </div>
+
+        <div class="app-content">
+            @Body
+        </div>
+    </main>
+</div>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
+<script>
+    window.addBodyClass = function (cls) { document.body.classList.add(cls); }
+</script>
+
+@code {
+    private string? currentUrl;
+    private bool isCollapsed = false;   // Desktop mini-rail
+    private bool isMobileOpen = true;   // Sidebar açık/kapalı
+    private string homeHref = "/home";
+
+    protected override void OnInitialized()
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user?.Identity?.IsAuthenticated == true)
+        {
+            if (user.IsInRole("Admin")) homeHref = "/admin/home";
+            else if (user.IsInRole("Öğretmen")) homeHref = "/teacher/home";
+            else if (user.IsInRole("Öğrenci")) homeHref = "/student/home";
+            else homeHref = "/home";
+        }
+        else homeHref = "/home";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("addBodyClass", "app-ready");
+        }
+    }
+
+    // Mobilde sidebar'ı aç/kapat
+    private void ToggleVisibility()
+    {
+        isMobileOpen = !isMobileOpen;
+        StateHasChanged();
+    }
+
+    // BRAND tıklanınca: aynı sayfayı EmptyLayout ile aç
+    private void GoEmptyLayout()
+    {
+        var uri = new Uri(NavigationManager.Uri);
+        var basePath = uri.GetLeftPart(UriPartial.Path);
+
+        // mevcut query'yi koruyup layout=empty ekle/güncelle
+        var parsed = QueryHelpers.ParseQuery(uri.Query);
+        var dict = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in parsed) dict[kv.Key] = kv.Value.ToString();
+        dict["layout"] = "empty";
+
+        var target = QueryHelpers.AddQueryString(basePath, dict);
+        if (!string.IsNullOrEmpty(uri.Fragment)) target += uri.Fragment;
+
+        NavigationManager.NavigateTo(target);
+    }
+
+    // Klavye ile Enter/Space desteği
+    private void HandleBrandKeydown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == " ")
+            GoEmptyLayout();
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}
+
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+    }
+
+    .app-shell {
+        --side-w: 268px;
+        --side-w-collapsed: 88px;
+        --side-fg: #e5e7eb;
+        --side-fg-muted: #9ca3af;
+        --divider: rgba(255,255,255,.08);
+        --link-hover: rgba(255,255,255,.06);
+        --grad-1: linear-gradient(90deg,var(--brand-1,#6C5CE7),var(--brand-2,#3DB0FF));
+    }
+
+    .app-sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: var(--side-w);
+        background: linear-gradient(180deg,#0b1022 0%,#141a2f 100%);
+        color: var(--side-fg);
+        display: flex;
+        flex-direction: column;
+        z-index: 1040;
+        transition: none;
+    }
+
+    body.app-ready .app-sidebar {
+        transition: width .18s ease, transform .18s ease;
+    }
+
+    .app-main {
+        min-height: 100vh;
+        background: linear-gradient(180deg,var(--bg-soft-1,#f7f9fc) 0%,var(--bg-soft-2,#eef3f8) 100%);
+        transition: none;
+        margin-left: var(--side-w);
+    }
+
+    body.app-ready .app-main {
+        transition: margin-left .18s ease;
+    }
+
+    /* Açık/kapalı: HER boyutta geçerli */
+    .app-shell:not(.is-mobile-open) .app-sidebar {
+        transform: translateX(-100%);
+    }
+
+    .app-shell.is-mobile-open .app-sidebar {
+        transform: translateX(0);
+    }
+
+    /* Sidebar kapalıyken içerik tam genişlik */
+    .app-shell:not(.is-mobile-open) .app-main {
+        margin-left: 0 !important;
+    }
+
+    /* Desktop mini-rail */
+    .app-shell.is-collapsed .app-sidebar {
+        width: var(--side-w-collapsed);
+    }
+
+    .app-shell.is-collapsed.is-mobile-open .app-main {
+        margin-left: var(--side-w-collapsed);
+    }
+
+    /* Mobil stiller (Razor’da @@ => @@media ) */
+    @@media (max-width:992px) {
+        .app-main
+
+    {
+        margin-left: 0;
+    }
+
+    }
+
+    /* Mobil overlay */
+    .app-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,.35);
+        display: none;
+        z-index: 1030;
+        pointer-events: none; /* varsayılan: tıklama engellemesin */
+    }
+
+    @@media (max-width:992px) {
+        .app-shell.is-mobile-open .app-overlay {
+            display: block;
+            pointer-events: auto;
+        }
+    }
+
+    /* Header */
+    .sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        background: var(--grad-1);
+        position: relative;
+        z-index: 2001;
+    }
+
+    .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #fff;
+        font-weight: 800;
+        user-select: none;
+    }
+
+    .brand-logo {
+        width: 34px;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff26;
+        border-radius: 50%;
+    }
+
+    .brand-text {
+        font-size: 1rem;
+        letter-spacing: .2px;
+    }
+
+    .brand-clickable {
+        cursor: pointer;
+    }
+
+        .brand-clickable:hover {
+            filter: brightness(1.08);
+        }
+
+        .brand-clickable:active {
+            transform: translateY(1px);
+        }
+
+    .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .icon-btn {
+        border: 0;
+        background: #ffffff1a;
+        color: #fff;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: filter .15s ease;
+        position: relative;
+        z-index: 2002;
+    }
+
+        .icon-btn:hover {
+            filter: brightness(1.15);
+        }
+
+    /* Topbar (mobil) */
+    .app-topbar {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 12px;
+        background: #fff;
+        border-bottom: 1px solid #eef2f7;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        margin: 0;
+    }
+
+    .top-brand {
+        font-weight: 800;
+    }
+
+    .sidebar-body {
+        padding: 8px 8px 72px;
+        overflow: auto;
+    }
+
+    .nav-section {
+        padding: 8px 6px;
+        background: linear-gradient(180deg,#0f172a 0%,#111827 100%);
+        border-radius: 12px;
+        margin-bottom: 8px;
+    }
+
+    .nav-title {
+        color: var(--side-fg-muted);
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        font-size: .72rem;
+        margin: 6px 10px 8px;
+        border-bottom: 1px dashed var(--divider);
+        padding-bottom: 6px;
+    }
+
+    .nav-link, .logout-form .nav-link.as-button {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--side-fg);
+        text-decoration: none;
+        padding: 10px 12px;
+        border-radius: 10px;
+        transition: background .15s ease,color .15s ease,transform .12s ease;
+    }
+
+        .nav-link i {
+            font-size: 1rem;
+            opacity: .95;
+        }
+
+    .left-accent {
+        position: absolute;
+        left: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 4px;
+        height: 60%;
+        background: transparent;
+        border-radius: 3px;
+    }
+
+    .nav-link:hover {
+        background: var(--link-hover);
+        transform: translateX(1px);
+    }
+
+    .nav-link.active {
+        background-image: var(--grad-1);
+        color: #fff !important;
+        box-shadow: 0 6px 16px rgba(16,24,40,.12);
+    }
+
+        .nav-link.active .left-accent {
+            background: #fff;
+        }
+
+    .logout-form {
+        margin: 0;
+    }
+
+    .app-content {
+        padding: 8px 16px 16px;
+    }
+</style>

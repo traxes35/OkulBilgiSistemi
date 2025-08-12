@@ -1,0 +1,225 @@
+﻿@page "/"
+@page "/Account/Login"
+@layout EmptyLayout
+@using System.ComponentModel.DataAnnotations
+@using BlazorApp1.Components.Layout
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using BlazorApp1.Data
+
+@inject SignInManager<ApplicationUser> SignInManager
+@inject ILogger<Login> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+@inject UserManager<ApplicationUser> UserManager
+
+<PageTitle>Giriş Yap</PageTitle>
+
+<div class="login-container">
+    <div class="login-form">
+        <h2 class="text-center mb-4">
+            <br/>
+            <i class="bi bi-person-lock fs-1"></i> Giriş Yap
+        </h2>
+
+        <StatusMessage Message="@errorMessage" />
+
+        <EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger" role="alert" />
+
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
+                <label for="email" class="form-label">Email Adresi</label>
+                <ValidationMessage For="() => Input.Email" class="text-danger" />
+            </div>
+
+            <div class="form-floating mb-3">
+                <InputText type="password" @bind-Value="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="password" />
+                <label for="password" class="form-label">Şifre</label>
+                <ValidationMessage For="() => Input.Password" class="text-danger" />
+            </div>
+
+            <div class="checkbox mb-3">
+                <label class="form-label">
+                    <InputCheckbox @bind-Value="Input.RememberMe" class="darker-border-checkbox form-check-input" />
+                    Beni Hatırla
+                </label>
+            </div>
+
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-lg btn-primary">Giriş Yap</button>
+            </div>
+
+            <div class="text-center mt-3">
+                <p><a href="Account/ForgotPassword">Şifrenizi mi unuttunuz?</a></p>
+                <p>
+                    <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Yeni bir kullanıcı olarak kayıt olun</a>
+                </p>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private string? errorMessage;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    public async Task LoginUser()
+    {
+        var result = await SignInManager.PasswordSignInAsync(
+            Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+
+        if (result.Succeeded)
+        {
+            Logger.LogInformation("Kullanıcı giriş yaptı.");
+
+            // — rol bazlı yönlendirme —
+            var user = await UserManager.FindByEmailAsync(Input.Email);
+            if (user != null)
+            {
+                var roles = await UserManager.GetRolesAsync(user);
+
+                if (roles.Contains("Öğrenci"))
+                {
+                    RedirectManager.RedirectTo("/student/home");
+                    return;
+                }
+                if (roles.Contains("Öğretmen"))
+                {
+                    RedirectManager.RedirectTo("/teacher/home");
+                    return;
+                }
+                if (roles.Contains("Admin"))
+                {
+                    RedirectManager.RedirectTo("/admin/home");
+                    return;
+                }
+            }
+
+            // rol bulunamazsa eski davranış (mantığı bozma)
+            RedirectManager.RedirectTo(ReturnUrl ?? "/home");
+        }
+        else if (result.RequiresTwoFactor)
+        {
+            RedirectManager.RedirectTo(
+                "Account/LoginWith2fa",
+                new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+        }
+        else if (result.IsLockedOut)
+        {
+            Logger.LogWarning("Kullanıcı hesabı kilitlendi.");
+            RedirectManager.RedirectTo("Account/Lockout");
+        }
+        else
+        {
+            errorMessage = "Hata: Geçersiz giriş denemesi.";
+        }
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = "";
+
+        [Required]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        [Display(Name = "Beni hatırlasın mı?")]
+        public bool RememberMe { get; set; }
+    }
+}
+<style>
+    /* Giriş Ekranı Konteyneri */
+    .login-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: linear-gradient(180deg, var(--bg-soft-1) 0%, var(--bg-soft-2) 100%);
+    }
+
+    .login-form {
+        background-color: #fff;
+        padding: 30px;
+        border-radius: 16px;
+        box-shadow: var(--shadow-lg);
+        width: 100%;
+        max-width: 400px;
+        text-align: center;
+    }
+
+        .login-form h2 {
+            font-size: 2rem;
+            color: var(--brand-1);
+            margin-bottom: 1.5rem;
+        }
+
+        /* Icon at the top */
+        .login-form i {
+            color: var(--brand-1);
+            margin-bottom: 20px;
+            font-size: 3rem;
+        }
+
+    /* Form input fields */
+    .form-floating {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        font-size: 1rem;
+    }
+
+    /* Validation error messages */
+    .text-danger {
+        font-size: 0.85rem;
+    }
+
+    /* Submit button */
+    .btn-primary {
+        background-color: var(--brand-2);
+        border-color: var(--brand-2);
+        font-size: 1.2rem;
+        padding: 12px;
+        border-radius: 8px;
+    }
+
+        .btn-primary:hover {
+            background-color: var(--brand-1);
+            border-color: var(--brand-1);
+        }
+
+    /* Remember me checkbox */
+    .darker-border-checkbox {
+        border-color: #ccc;
+    }
+
+    .d-grid .btn-lg {
+        padding: 12px;
+    }
+
+    /* Links and text */
+    .text-center p {
+        margin-top: 15px;
+    }
+
+    .text-center a {
+        color: var(--brand-2);
+        text-decoration: none;
+    }
+
+        .text-center a:hover {
+            text-decoration: underline;
+        }
+</style>

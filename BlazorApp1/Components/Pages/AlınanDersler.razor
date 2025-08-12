@@ -1,0 +1,122 @@
+﻿@page "/student/alinan-dersler"
+@attribute [Authorize(Roles = "Öğrenci")]
+
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+
+@inject IStudentCourseService StudentCourseService
+@inject IStudentGradeService StudentGradeService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject ICourseSelectionService CourseSelectionService
+
+<div class="page-bg">
+    <div class="container-fluid py-3">
+
+        <!-- Header -->
+        <div class="card-soft p-3 mb-3 header-wrap">
+            <div class="d-flex align-items-center gap-3">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-book-half fs-5"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h3 class="mb-1">Alınan Dersler ve Notlar</h3>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge-title">Ders sayısı: <strong class="ms-1">@((detailedCourses?.Count ?? 0))</strong></span>
+                        <span class="badge-title">Not kalemi: <strong class="ms-1">@studentGrades.Count</strong></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (isSelectionOpen)
+        {
+            <div class="alert alert-danger mt-2">
+                ⚠️ Şu anda ders seçim dönemi aktiftir. Alınan dersler bu süre boyunca görüntülenemez.
+            </div>
+        }
+        else if (detailedCourses == null)
+        {
+            <p class="text-muted">Dersler yükleniyor...</p>
+        }
+        else if (!detailedCourses.Any())
+        {
+            <div class="alert alert-warning">
+                🕵️‍♂️ Şu anda aktif olarak aldığınız bir ders bulunmamaktadır.
+            </div>
+        }
+        else
+        {
+            <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
+                @foreach (var sc in detailedCourses)
+                {
+                    var course = sc.Course;
+                    var courseGrades = studentGrades
+                    .Where(g => g.CourseGradeType.CourseId == course.Id)
+                    .ToList();
+
+                    <div class="col">
+                        <div class="card-soft h-100">
+                            <div class="p-3">
+                                <h5 class="mb-1">@course.CourseName</h5>
+                                <div class="d-flex flex-wrap gap-2 small text-muted mb-2">
+                                    <span class="pill pill-class">@course.ClassLevel. Sınıf</span>
+                                    <span class="pill pill-credit">@course.Credit AKTS</span>
+                                </div>
+
+                                @if (!courseGrades.Any())
+                                {
+                                    <p class="mt-2 text-muted fst-italic">Henüz not girilmemiş.</p>
+                                }
+                                else
+                                {
+                                    <ul class="list-group list-group-flush mt-2">
+                                        @foreach (var grade in courseGrades)
+                                        {
+                                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                <span>📑 @grade.CourseGradeType.GradeType.GradeName</span>
+                                                <span class="pill pill-term">@grade.Score</span>
+                                            </li>
+                                        }
+                                    </ul>
+
+                                    @if (sc.Grade != null && sc.LetterGrade != null)
+                                    {
+                                        <hr />
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <span class="pill pill-term">📊 Genel Ortalama: @sc.Grade</span>
+                                            <span class="pill pill-mandatory">🧾 Harf Notu: @sc.LetterGrade</span>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<StudentCourse>? detailedCourses;
+    private List<StudentGrade> studentGrades = new();
+    private bool isSelectionOpen = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user == null) return;
+
+        isSelectionOpen = await CourseSelectionService.IsCourseSelectionOpenAsync();
+        if (isSelectionOpen) return;
+
+        detailedCourses = await StudentCourseService.GetDetailedActiveCoursesAsync(user.Id);
+        studentGrades = await StudentGradeService.GetGradesByStudentIdAsync(user.Id);
+    }
+}

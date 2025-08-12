@@ -1,0 +1,223 @@
+﻿@page "/student/home"
+@attribute [Authorize(Roles = "Öğrenci")]
+@rendermode InteractiveServer
+
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+
+@inject ITermService TermService
+@inject ITranscriptService TranscriptService
+@inject ApplicationDbContext Db
+@inject AuthenticationStateProvider AuthProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IStudentAdvisorService AdvisorService
+<div class="page-bg py-3">
+    <div class="container">
+
+        <!-- Başlık -->
+        <div class="header-wrap mb-3">
+            <div class="d-flex align-items-center gap-2">
+                <div class="header-icon d-flex align-items-center justify-content-center">
+                    <i class="bi bi-mortarboard fs-5"></i>
+                </div>
+                <div>
+                    <h4 class="mb-1">Öğrenci Ana Sayfası</h4>
+                    <span class="badge-title">@(me?.Isim ?? "Öğrenci")</span>
+                </div>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="card-soft p-4 text-muted">Yükleniyor...</div>
+        }
+        else
+        {
+            <!-- Üst satır: Aktif Dönem + Danışman -->
+            <div class="row g-2 mb-2">
+                <div class="col-12 col-md-6">
+                    <div class="card-soft p-3 h-100 hover-lift">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-semibold"><i class="bi bi-calendar2-week me-2"></i>Aktif Dönem</h6>
+                            <span class="count-chip px-2 py-1">
+                                @(activeTerm is null ? "—" : $"{GetSemesterName(activeTerm.Semester)} {activeTerm.Year}")
+                            </span>
+                        </div>
+                        <div class="mt-2 text-subtle">
+                            @if (activeTerm is null)
+                            {
+                                <span>Aktif dönem bulunamadı.</span>
+                            }
+                            else
+                            {
+                                <span>Yıl: <strong>@activeTerm.Year</strong> • Yarıyıl: <strong>@GetSemesterName(activeTerm.Semester)</strong></span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-6">
+                    <div class="card-soft p-3 h-100 hover-lift">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-semibold"><i class="bi bi-person-badge me-2"></i>Danışman Öğretmen</h6>
+                            <span class="badge-title">Danışman</span>
+                        </div>
+                        <div class="mt-2">
+                            @if (string.IsNullOrWhiteSpace(advisorName))
+                            {
+                                <span class="text-muted">Atanmamış</span>
+                            }
+                            else
+                            {
+                                <span class="name-display">
+                                    <i class="bi bi-person-fill"></i> @advisorName
+                                </span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Orta satır: Fakülte/Bölüm/Sınıf -->
+            <div class="card-soft p-3 mb-2 hover-lift">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h6 class="mb-0 fw-semibold"><i class="bi bi-building me-2"></i>Akademik Bilgiler</h6>
+                    <span class="badge-title">Profil</span>
+                </div>
+
+                <div class="auto-line mt-2">
+                    <span class="pill pill-class">Fakülte: <strong>@(string.IsNullOrWhiteSpace(facultyName) ? "—" : facultyName)</strong></span>
+                    <span class="pill pill-code">Bölüm: <strong>@(string.IsNullOrWhiteSpace(departmentName) ? "—" : departmentName)</strong></span>
+                    <span class="pill pill-mandatory">Sınıf: <strong>@(classLevel?.ToString() ?? "—")</strong></span>
+                </div>
+            </div>
+
+            <!-- Alt satır: ANO / AGNO -->
+            <div class="row g-2">
+                <div class="col-12 col-md-6">
+                    <div class="card-soft p-3 h-100 hover-lift">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-semibold"><i class="bi bi-graph-up-arrow me-2"></i>ANO</h6>
+                            <span class="badge-title">Aktif Dönem</span>
+                        </div>
+                        <div class="mt-2 value-display">@((ano is null) ? "—" : ano?.ToString("0.00"))</div>
+                        <div class="info-note">Σ(kredi × katsayı) / Σ(kredi)</div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-6">
+                    <div class="card-soft p-3 h-100 hover-lift">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-semibold"><i class="bi bi-bar-chart-line me-2"></i>AGNO</h6>
+                            <span class="badge-title">Genel</span>
+                        </div>
+                        <div class="mt-2 value-display">@((agno is null) ? "—" : agno?.ToString("0.00"))</div>
+                        <div class="info-note">Kümülatif Ortalama</div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+@code {
+    private bool isLoading = true;
+
+    private ApplicationUser? me;
+    private int studentId;
+    private Term? activeTerm;
+
+    private string? advisorName;     // Danışman adı (varsa)
+    private string? facultyName;     // Fakülte adı
+    private string? departmentName;  // Bölüm adı
+    private int? classLevel;         // Öğrencinin sınıf seviyesi
+
+    private double? ano;             // Aktif dönem ortalaması
+    private double? agno;            // Genel ortalama
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthProvider.GetAuthenticationStateAsync();
+            me = await UserManager.GetUserAsync(authState.User);
+            if (me == null) { isLoading = false; return; }
+
+            // Projede int PK kullandığını varsayarak:
+            studentId = me.Id;
+
+            // Aktif dönem
+            activeTerm = await TermService.GetActiveTermAsync();
+
+            // Fakülte/Bölüm/Sınıf (Department -> Faculty zinciri)
+            classLevel = me.SinifSeviyesi;
+
+            if (me.DepartmentId != null)
+            {
+                var dept = await Db.Departments
+                                   .Include(d => d.Faculty)
+                                   .FirstOrDefaultAsync(d => d.Id == me.DepartmentId);
+
+                if (dept != null)
+                {
+                    // İsim alanları projeye göre değişebiliyor; en güvenlisi Name varsa onu kullanmak
+                    departmentName = !string.IsNullOrWhiteSpace(dept.Name)
+                        ? dept.Name
+                        : (dept.GetType().GetProperty("DepartmentName")?.GetValue(dept)?.ToString() ?? "—");
+
+                    facultyName = dept.Faculty != null
+                        ? (!string.IsNullOrWhiteSpace(dept.Faculty.Name)
+                            ? dept.Faculty.Name
+                            : (dept.Faculty.GetType().GetProperty("FacultyName")?.GetValue(dept.Faculty)?.ToString() ?? "—"))
+                        : "—";
+                }
+            }
+
+            // Danışman (StudentAdvisors üzerinden aktif kayıt)
+            advisorName = (await AdvisorService.GetActiveAdvisorAsync(studentId))?.Isim;
+
+            // ANO / AGNO
+            await CalculateGpasAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task CalculateGpasAsync()
+    {
+        var records = await Db.TranscriptRecords
+            .Include(r => r.Course)
+            .Include(r => r.Term)
+            .Where(r => r.UserId == studentId &&
+                        r.Course != null &&
+                        r.Course.Credit > 0 &&
+                        r.GradeCoefficient != null)
+            .ToListAsync();
+
+        // AGNO
+        var totalCreditsAll = records.Sum(r => (double)r.Course!.Credit);
+        var weightedAll = records.Sum(r => ((double)r.Course!.Credit) * (r.GradeCoefficient ?? 0));
+        agno = totalCreditsAll > 0 ? (weightedAll / totalCreditsAll) : (double?)null;
+
+        // ANO (aktif dönem)
+        if (activeTerm != null)
+        {
+            var termRecords = records.Where(r => r.TermId == activeTerm.Id).ToList();
+            var totalCreditsTerm = termRecords.Sum(r => (double)r.Course!.Credit);
+            var weightedTerm = termRecords.Sum(r => ((double)r.Course!.Credit) * (r.GradeCoefficient ?? 0));
+            ano = totalCreditsTerm > 0 ? (weightedTerm / totalCreditsTerm) : (double?)null;
+        }
+        else
+        {
+            ano = null;
+        }
+    }
+
+    private static string GetSemesterName(int semester)
+        => semester == 1 ? "Güz" : "Bahar";
+}

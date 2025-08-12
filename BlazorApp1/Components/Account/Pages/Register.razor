@@ -1,0 +1,265 @@
+﻿@page "/Account/Register"
+
+@using System.ComponentModel.DataAnnotations
+@using System.Text
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using BlazorApp1.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IUserStore<ApplicationUser> UserStore
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IEmailSender<ApplicationUser> EmailSender
+@inject ILogger<Register> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>Kayıt Ol</PageTitle>
+
+<div class="register-container">
+    <div class="register-form">
+        <h2 class="text-center mb-4">
+            <i class="bi bi-person-plus fs-1"></i> Kayıt Ol
+        </h2>
+
+        <StatusMessage Message="@Message" />
+
+        <EditForm Model="Input" asp-route-returnUrl="@ReturnUrl" method="post" OnValidSubmit="RegisterUser" FormName="register">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger" role="alert" />
+
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.Isim" class="form-control" aria-required="true" placeholder="İsim" />
+                <label for="isim">İsim</label>
+                <ValidationMessage For="() => Input.Isim" class="text-danger" />
+            </div>
+
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.Soyisim" class="form-control" aria-required="true" placeholder="Soyisim" />
+                <label for="soyisim">Soyisim</label>
+                <ValidationMessage For="() => Input.Soyisim" class="text-danger" />
+            </div>
+
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
+                <label for="email">Email</label>
+                <ValidationMessage For="() => Input.Email" class="text-danger" />
+            </div>
+
+            <div class="form-floating mb-3">
+                <InputText type="password" @bind-Value="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="Şifre" />
+                <label for="password">Şifre</label>
+                <ValidationMessage For="() => Input.Password" class="text-danger" />
+            </div>
+
+            <div class="form-floating mb-3">
+                <InputText type="password" @bind-Value="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="Şifreyi Onayla" />
+                <label for="confirm-password">Şifreyi Onayla</label>
+                <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
+            </div>
+
+            <div class="form-floating mb-3">
+                <InputSelect @bind-Value="Input.Role" class="form-control" aria-required="true">
+                    <option value="" disabled selected>Rol Seçin</option>
+                    <option value="Admin">Admin</option>
+                    <option value="Öğretmen">Öğretmen</option>
+                    <option value="Öğrenci">Öğrenci</option>
+                </InputSelect>
+                <label for="role">Rol</label>
+                <ValidationMessage For="() => Input.Role" class="text-danger" />
+            </div>
+
+            <button type="submit" class="w-100 btn btn-lg btn-primary">Kayıt Ol</button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private IEnumerable<IdentityError>? identityErrors;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? Message => identityErrors is null ? null : $"Hata: {string.Join(", ", identityErrors.Select(error => error.Description))}";
+
+    public async Task RegisterUser(EditContext editContext)
+    {
+        var user = CreateUser();
+
+        user.Isim = Input.Isim;
+        user.Soyisim = Input.Soyisim;
+        await UserManager.SetUserNameAsync(user, Input.Email);
+        var emailStore = GetEmailStore();
+        await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
+        var result = await UserManager.CreateAsync(user, Input.Password);
+
+        if (!result.Succeeded)
+        {
+            identityErrors = result.Errors;
+            return;
+        }
+
+        // Kullanıcıya rol ataması
+        if (!string.IsNullOrEmpty(Input.Role))
+        {
+            var roleResult = await UserManager.AddToRoleAsync(user, Input.Role);
+            if (!roleResult.Succeeded)
+            {
+                identityErrors = roleResult.Errors;
+                return;
+            }
+        }
+
+        Logger.LogInformation("Kullanıcı yeni hesap oluşturdu: {Role}.", Input.Role);
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+        code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+        var callbackUrl = NavigationManager.GetUriWithQueryParameters(
+            NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+            new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
+
+        await EmailSender.SendConfirmationLinkAsync(user, Input.Email, HtmlEncoder.Default.Encode(callbackUrl));
+
+        if (UserManager.Options.SignIn.RequireConfirmedAccount)
+        {
+            RedirectManager.RedirectTo("Account/RegisterConfirmation", new() { ["email"] = Input.Email, ["returnUrl"] = ReturnUrl });
+        }
+
+        await SignInManager.SignInAsync(user, isPersistent: false);
+        RedirectManager.RedirectTo(ReturnUrl);
+    }
+
+    private ApplicationUser CreateUser()
+    {
+        try
+        {
+            return new ApplicationUser();
+        }
+        catch
+        {
+            throw new InvalidOperationException($"'{nameof(ApplicationUser)}' sınıfının örneği oluşturulamadı. " +
+                $"Bu sınıfın soyut olmadığından ve parametresiz bir yapıcı metodunun bulunduğundan emin olun.");
+        }
+    }
+
+    private IUserEmailStore<ApplicationUser> GetEmailStore()
+    {
+        if (!UserManager.SupportsUserEmail)
+        {
+            throw new NotSupportedException("Varsayılan UI, email desteği olan bir kullanıcı deposu gerektirir.");
+        }
+        return (IUserEmailStore<ApplicationUser>)UserStore;
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        [EmailAddress]
+        [Display(Name = "Email")]
+        public string Email { get; set; } = "";
+
+        [Required]
+        [StringLength(100, ErrorMessage = "{0} en az {2} ve en fazla {1} karakter uzunluğunda olmalıdır.", MinimumLength = 6)]
+        [DataType(DataType.Password)]
+        [Display(Name = "Şifre")]
+        public string Password { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        [Display(Name = "Şifreyi Onayla")]
+        [Compare("Password", ErrorMessage = "Şifreler uyuşmuyor.")]
+        public string ConfirmPassword { get; set; } = "";
+
+        [Required]
+        [Display(Name = "Rol")]
+        public string Role { get; set; } = "";
+
+        [Required]
+        [StringLength(50, ErrorMessage = "{0} en fazla {1} karakter uzunluğunda olmalıdır.")]
+        [Display(Name = "İsim")]
+        public string Isim { get; set; } = "";
+
+        [Required]
+        [StringLength(50, ErrorMessage = "{0} en fazla {1} karakter uzunluğunda olmalıdır.")]
+        [Display(Name = "Soyisim")]
+        public string Soyisim { get; set; } = "";
+    }
+}
+<style>
+    .register-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: linear-gradient(180deg, var(--bg-soft-1) 0%, var(--bg-soft-2) 100%);
+    }
+
+    .register-form {
+        background-color: #fff;
+        padding: 30px;
+        border-radius: 16px;
+        box-shadow: var(--shadow-lg);
+        width: 100%;
+        max-width: 400px;
+        text-align: center;
+    }
+
+        .register-form h2 {
+            font-size: 2rem;
+            color: var(--brand-1);
+            margin-bottom: 1.5rem;
+        }
+
+        /* Icon at the top */
+        .register-form i {
+            color: var(--brand-1);
+            margin-bottom: 20px;
+            font-size: 3rem;
+        }
+
+    /* Form input fields */
+    .form-floating {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        font-size: 1rem;
+    }
+
+    /* Validation error messages */
+    .text-danger {
+        font-size: 0.85rem;
+    }
+
+    /* Submit button */
+    .btn-primary {
+        background-color: var(--brand-2);
+        border-color: var(--brand-2);
+        font-size: 1.2rem;
+        padding: 12px;
+        border-radius: 8px;
+    }
+
+        .btn-primary:hover {
+            background-color: var(--brand-1);
+            border-color: var(--brand-1);
+        }
+
+    /* Links and text */
+    .text-center p {
+        margin-top: 15px;
+    }
+
+    .text-center a {
+        color: var(--brand-2);
+        text-decoration: none;
+    }
+
+        .text-center a:hover {
+            text-decoration: underline;
+        }
+</style>

@@ -1,0 +1,399 @@
+﻿@page "/admin/ekle-ders"
+@rendermode InteractiveServer
+
+@using BlazorApp1.Data
+@using BlazorApp1.Models
+@using BlazorApp1.Services.Interfaces
+@using Microsoft.AspNetCore.Identity
+
+@inject ICourseService CourseService
+@inject IDepartmentService DepartmentService
+@inject ITermService TermService
+@inject ITeacherCourseService TeacherCourseService
+@inject UserManager<ApplicationUser> UserManager
+
+<HeadContent>
+    <link rel="stylesheet" href="css/ekle-ders.css?v=1" />
+</HeadContent>
+
+<div class="page-bg">
+    <div class="container py-3 py-md-4">
+
+        <!-- Başlık -->
+        <div class="header-wrap d-flex align-items-center gap-3 mb-3">
+            <div class="rounded-circle header-icon d-flex align-items-center justify-content-center">📚</div>
+            <div>
+                <h2 class="h4 mb-0">Yeni Ders Ekle & Öğretmene Ata</h2>
+                <small class="text-muted">Ders bilgilerini gir, dönemi seç ve istersen öğretmene hemen ata.</small>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <!-- Form -->
+            <div class="col-12 col-lg-6">
+                <div class="card card-soft">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3"><span class="badge badge-title">Ders Bilgileri</span></h5>
+
+                        <EditForm Model="newCourse" OnValidSubmit="AddCourseAsync">
+                            <DataAnnotationsValidator />
+                            <ValidationSummary />
+
+                            <div class="row g-3">
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Ders Kodu</label>
+                                    <div class="input-group fancy-field">
+                                        <span class="input-group-text">#</span>
+                                        <InputNumber @bind-Value="newCourse.CourseCode" class="form-control" />
+                                    </div>
+                                    <small class="form-text text-muted">Örn: 101, 202...</small>
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Ders Adı</label>
+                                    <div class="input-group fancy-field">
+                                        <span class="input-group-text">🎓</span>
+                                        <InputText @bind-Value="newCourse.CourseName" class="form-control" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mt-0">
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Kredi</label>
+                                    <div class="input-group fancy-field">
+                                        <span class="input-group-text">💠</span>
+                                        <InputNumber @bind-Value="newCourse.Credit" class="form-control" />
+                                    </div>
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Kota</label>
+                                    <div class="input-group fancy-field">
+                                        <span class="input-group-text">👥</span>
+                                        <InputNumber @bind-Value="newCourse.Quota" class="form-control" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mt-0">
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Haftalık Saat</label>
+                                    <div class="input-group fancy-field">
+                                        <span class="input-group-text">⏱️</span>
+                                        <InputNumber @bind-Value="newCourse.WeeklySlotCount" class="form-control" />
+                                    </div>
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Sınıf Seviyesi</label>
+                                    <div class="input-group fancy-field">
+                                        <span class="input-group-text">🏷️</span>
+                                        <InputNumber @bind-Value="newCourse.ClassLevel" class="form-control" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mt-0">
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Bölüm</label>
+                                    <div class="input-group fancy-field">
+                                        <span class="input-group-text">🏫</span>
+                                        <InputSelect @bind-Value="newCourse.DepartmentId" class="form-select">
+                                            <option value="0">-- Bölüm Seçin --</option>
+                                            @foreach (var dept in departments)
+                                            {
+                                                <option value="@dept.Id">@dept.Name</option>
+                                            }
+                                        </InputSelect>
+                                    </div>
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Dönem</label>
+                                    <div class="input-group fancy-field">
+                                        <span class="input-group-text">📅</span>
+                                        <InputSelect @bind-Value="newCourse.TermId" class="form-select">
+                                            <option value="0">-- Dönem Seçin --</option>
+                                            @foreach (var term in terms)
+                                            {
+                                                <option value="@term.Id">@term.Year @((term.Semester == 1) ? "Güz" : "Bahar")</option>
+                                            }
+                                        </InputSelect>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mt-0">
+                                <div class="col-12 col-md-6 d-flex align-items-center">
+                                    <div class="form-check form-switch big-switch">
+                                        <InputCheckbox @bind-Value="newCourse.IsMandatory" class="form-check-input" id="mandatory" />
+                                        <label class="form-check-label ms-2" for="mandatory">Zorunlu Ders</label>
+                                    </div>
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Öğretmen Ataması (Opsiyonel)</label>
+                                    <div class="input-group fancy-field">
+                                        <span class="input-group-text">👨‍🏫</span>
+                                        <InputSelect @bind-Value="selectedTeacherId" class="form-select">
+                                            <option value="0">-- Öğretmen Seçin --</option>
+                                            @foreach (var teacher in teachers)
+                                            {
+                                                <option value="@teacher.Id">@teacher.Isim</option>
+                                            }
+                                        </InputSelect>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-gradient-primary w-100 rounded-pill hover-lift">➕ Dersi Ekle</button>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(successMessage))
+                            {
+                                <div class="alert alert-success mt-3 mb-0">@successMessage</div>
+                            }
+                        </EditForm>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Eklenmiş Dersler -->
+            <div class="col-12 col-lg-6">
+                <div class="card card-soft h-100">
+                    <div class="card-body d-flex flex-column">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <h5 class="card-title mb-0">
+                                <span class="badge badge-title">Eklenmiş Dersler</span>
+                            </h5>
+                            <span class="badge count-chip">Toplam: @FilteredCourses.Count()</span>
+                        </div>
+
+                        <!-- Filtre çubuğu -->
+                        <div class="row g-2 align-items-end filter-bar mb-2">
+                            <div class="col-12 col-sm-8">
+                                <label class="form-label mb-1">Bölüme göre filtrele</label>
+                                <div class="input-group fancy-field">
+                                    <span class="input-group-text">🔎</span>
+                                    <select class="form-select" @bind="departmentFilterId">
+                                        <option value="0">— Tüm Bölümler —</option>
+                                        @foreach (var dept in departments)
+                                        {
+                                            <option value="@dept.Id">@dept.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-12 col-sm-4">
+                                <button type="button" class="btn btn-outline-secondary w-100 rounded-pill hover-lift" @onclick="ClearFilters">Filtreyi Temizle</button>
+                            </div>
+                        </div>
+
+                        @if (!FilteredCourses.Any())
+                        {
+                            <div class="text-muted mt-2">Filtreye uyan ders bulunamadı.</div>
+                        }
+                        else
+                        {
+                            <div class="scroll-container shadow-sm rounded-4 overflow-auto table-sticky">
+                                <table class="table table-sm align-middle mb-0 table-nowrap table-colorful">
+                                    <thead>
+                                        <tr>
+                                            <th>Kod</th>
+                                            <th>Ad</th>
+                                            <th>Kredi</th>
+                                            <th>Zorunlu</th>
+                                            <th>Sınıf</th>
+                                            <th>Bölüm</th>
+                                            <th>Dönem</th>
+                                            <th>Öğretmen</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var course in FilteredCourses)
+                                        {
+                                            <tr>
+                                                <td><span class="pill pill-code">#@course.CourseCode</span></td>
+                                                <td class="text-truncate td-course-name" title="@course.CourseName">@course.CourseName</td>
+                                                <td><span class="pill pill-credit">@course.Credit</span></td>
+                                                <td>
+                                                    @if (course.IsMandatory)
+                                                    {
+                                                        <span class="pill pill-mandatory">Evet</span>
+                                                    }
+                                                    else
+                                                    {
+
+                                                        <span class="pill pill-optional">Hayır</span>
+                                                    }
+                                                </td>
+                                                <td><span class="pill pill-class">@course.ClassLevel</span></td>
+                                                <td>@course.Department?.Name</td>
+                                                <td>
+                                                    <span class="pill pill-term">
+                                                        @(course.Term is null ? "-" : $"{course.Term.Year} {(course.Term.Semester == 1 ? "Güz" : "Bahar")}")
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <div class="d-flex flex-column gap-1">
+                                                        <div class="text-truncate">
+                                                            <i class="bi bi-person-badge me-1"></i>
+                                                            <strong>@GetTeacherDisplayName(course)</strong>
+                                                        </div>
+                                                        <div class="d-flex gap-2 align-items-center">
+                                                            <select class="form-select form-select-sm"
+                                                                    @bind="selectedTeacherByCourse[course.Id]">
+                                                                <option value="0">— Atanmamış —</option>
+                                                                @foreach (var t in teachers)
+                                                                {
+                                                                    <option value="@t.Id">@t.Isim</option>
+                                                                }
+                                                            </select>
+                                                            <button type="button"
+                                                                    class="btn btn-sm btn-gradient-primary"
+                                                                    title="Öğretmeni Kaydet"
+                                                                    @onclick="() => SaveTeacherAssignmentAsync(course.Id)">
+                                                                Kaydet
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+@code {
+    private List<Course> addedCourses = new();
+    private Course newCourse = new();
+    private List<Department> departments = new();
+    private List<Term> terms = new();
+    private List<ApplicationUser> teachers = new();
+
+    private int selectedTeacherId = 0;
+    private string? successMessage;
+    private Dictionary<int, int> selectedTeacherByCourse = new();
+
+    private int departmentFilterId = 0;
+    private IEnumerable<Course> FilteredCourses =>
+        addedCourses.Where(c => departmentFilterId == 0 || c.DepartmentId == departmentFilterId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        terms = await TermService.GetAllTermsAsync();
+        var activeTerm = terms.FirstOrDefault(t => t.IsActive);
+
+        if (activeTerm != null)
+        {
+            newCourse.TermId = activeTerm.Id;
+            addedCourses = await CourseService.GetAllCoursesByTermAsync(activeTerm.Id);
+            BuildSelectedTeacherMap();
+        }
+
+        teachers = (await UserManager.GetUsersInRoleAsync("Öğretmen")).ToList();
+        departments = await DepartmentService.GetAllDepartmentsAsync();
+    }
+
+    private void ClearFilters() => departmentFilterId = 0;
+
+    private async Task AddCourseAsync()
+    {
+        if (newCourse.TermId == 0) { successMessage = "⚠️ Lütfen bir dönem seçin."; return; }
+        if (newCourse.DepartmentId == 0) { successMessage = "⚠️ Lütfen bir bölüm seçin."; return; }
+
+        await CourseService.AddCourseAsync(newCourse);
+
+        if (selectedTeacherId > 0)
+        {
+            // Tek aktif atama kuralı için Assign kullan
+            await TeacherCourseService.AssignTeacherAsync(newCourse.Id, selectedTeacherId);
+        }
+
+        successMessage = "✅ Ders başarıyla eklendi!";
+        var selectedTermId = newCourse.TermId;
+
+        newCourse = new Course
+        {
+            TermId = selectedTermId,
+            DepartmentId = newCourse.DepartmentId,
+            IsMandatory = newCourse.IsMandatory
+        };
+        selectedTeacherId = 0;
+
+        if (selectedTermId > 0)
+            await ReloadCoursesAsync(selectedTermId);
+
+        StateHasChanged();
+    }
+
+    private void BuildSelectedTeacherMap()
+    {
+        selectedTeacherByCourse.Clear();
+        foreach (var c in addedCourses)
+        {
+            var assigned = c.TeacherCourses?
+                .OrderByDescending(tc => tc.IsActive)
+                .ThenByDescending(tc => tc.Id)
+                .FirstOrDefault();
+            selectedTeacherByCourse[c.Id] = assigned?.UserId ?? 0;
+        }
+    }
+
+    private async Task ReloadCoursesAsync(int termId)
+    {
+        addedCourses = await CourseService.GetAllCoursesByTermAsync(termId);
+        BuildSelectedTeacherMap();
+        StateHasChanged();
+    }
+
+    private async Task SaveTeacherAssignmentAsync(int courseId)
+    {
+        var termId = newCourse.TermId;
+        if (termId <= 0) return;
+
+        if (!selectedTeacherByCourse.TryGetValue(courseId, out var newTeacherId)) return;
+
+        if (newTeacherId > 0)
+            await TeacherCourseService.AssignTeacherAsync(courseId, newTeacherId);
+        else
+            await TeacherCourseService.ClearAssignmentAsync(courseId);
+
+        successMessage = "✅ Öğretmen ataması güncellendi.";
+        await ReloadCoursesAsync(termId);
+    }
+    private string GetTeacherDisplayName(Course course)
+    {
+        // 1) Önce seçili haritadan (UI state) oku
+        if (selectedTeacherByCourse.TryGetValue(course.Id, out var teacherId) && teacherId > 0)
+        {
+            var t = teachers.FirstOrDefault(x => x.Id == teacherId);
+            if (t != null) return t.Isim;
+            return $"#{teacherId}"; // isim listede yoksa id göster
+        }
+
+        // 2) Yüklenme anında harita dolmadan gelirse nav'dan bak
+        var active = course.TeacherCourses?
+            .OrderByDescending(tc => tc.IsActive)
+            .ThenByDescending(tc => tc.Id)
+            .FirstOrDefault();
+
+        if (active?.UserId > 0)
+        {
+            var t2 = teachers.FirstOrDefault(x => x.Id == active.UserId);
+            return t2?.Isim ?? $"#{active.UserId}";
+        }
+
+        return "Atanmamış";
+    }
+}
